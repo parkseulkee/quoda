@@ -30,7 +30,7 @@ Orchestrator (LLM: Large Model — Opus, GPT-4o)
     ↓
 Shared Tools: semantic_lookup(), check_quality(), execute_sql(), render_chart()
     ↓
-YAML Config | Database | LLM Provider | dbt/GX (optional)
+YAML Config | Database | LLM Provider | dbt (optional)
 ```
 
 **에이전트별 독립 LLM 설정:** Orchestrator는 복잡한 의도 파악을 위해 큰 모델, 각 에이전트는 특화된 작은 모델을 사용하여 비용을 최적화한다. 모든 에이전트는 LLM 기반이며, provider와 model을 각각 독립적으로 설정할 수 있다.
@@ -260,7 +260,7 @@ quality:
 - **Scoped validation:** 전체 테이블이 아닌 생성된 SQL의 WHERE 조건과 동일한 범위에서만 검증하여 성능 확보
 - **독립 실행:** `quada check [table]` 명령으로 쿼리 없이 품질만 확인 가능 (이 경우 전체 테이블 대상으로 검증)
 - **건너뛰기:** `--skip-quality` 플래그로 품질 검증 생략 가능
-- **GX 연동:** 자체 경량 검증 엔진이 기본, Great Expectations가 설치되어 있으면 GX로 위임 가능
+- **자체 경량 품질 엔진:** GX의 룰 기반 접근을 참고하되, YAML 정의 → SQL 생성/실행하는 경량 엔진을 자체 구현
 - **병렬 실행:** 품질 규칙들은 독립적이므로 병렬로 검증하여 성능을 확보한다.
   - 합칠 수 있는 규칙(freshness, null_ratio, value_range, enum 등)은 하나의 SQL 쿼리로 합쳐서 1회 DB 라운드트립으로 처리
   - 합칠 수 없는 규칙(custom_sql)은 `asyncio.gather`로 동시 실행
@@ -321,6 +321,8 @@ llm:
 
 **LiteLLM 참고:** 1.82.8 버전에 공급망 공격(credential stealer) 이력 있음. 버전 고정 필수. LLM 호출을 `llm/client.py` 인터페이스 뒤에 추상화하여, 추후 자체 구현으로 교체 시 이 파일만 수정하면 되도록 설계.
 
+**품질 엔진:** GX의 룰 기반(JSON 정의 → 검증 쿼리 실행) 접근을 참고하되, GX에 의존하지 않고 자체 경량 엔진으로 구현. YAML로 규칙을 정의하고, 규칙 타입별로 검증 SQL을 생성/실행하는 구조.
+
 ## Project Structure
 
 ```
@@ -347,7 +349,7 @@ quada/
 │       ├── quality/                # Data Quality Engine
 │       │   ├── engine.py           # 자체 경량 검증 엔진
 │       │   ├── rules.py            # Rule 타입 정의
-│       │   └── gx_adapter.py       # Great Expectations 연동 (optional)
+│       │   └── executor.py          # 품질 검증 SQL 생성 및 실행
 │       ├── db/                     # Database Layer
 │       │   ├── connector.py        # SQLAlchemy 기반 DB 연결
 │       │   └── executor.py         # SQL 실행 (read-only 트랜잭션)
@@ -422,7 +424,7 @@ $ quada ask "지난달 매출" --skip-quality
 - 3-Agent 아키텍처 (Semantic Query, Quality, Interpret)
 - 에이전트별 독립 LLM 설정
 - On-demand 데이터 품질 검증 (쿼리 범위 내)
-- 자체 경량 품질 검증 엔진
+- 자체 경량 품질 검증 엔진 (GX 참고, 자체 구현)
 - PostgreSQL 지원
 - CLI 시각화 (Plotext)
 - 시맨틱 매칭 학습 (aliases 자동 추가)
@@ -430,7 +432,6 @@ $ quada ask "지난달 매출" --skip-quality
 ### Out of Scope (Future)
 - API 서버 (REST/GraphQL)
 - dbt Semantic Layer 연동
-- Great Expectations 연동
 - 클라우드 데이터 웨어하우스 (BigQuery, Snowflake, Redshift)
 - 웹 UI
 - 스케줄링/캐시
