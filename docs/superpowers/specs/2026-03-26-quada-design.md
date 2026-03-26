@@ -261,6 +261,10 @@ quality:
 - **독립 실행:** `quada check [table]` 명령으로 쿼리 없이 품질만 확인 가능 (이 경우 전체 테이블 대상으로 검증)
 - **건너뛰기:** `--skip-quality` 플래그로 품질 검증 생략 가능
 - **GX 연동:** 자체 경량 검증 엔진이 기본, Great Expectations가 설치되어 있으면 GX로 위임 가능
+- **병렬 실행:** 품질 규칙들은 독립적이므로 병렬로 검증하여 성능을 확보한다.
+  - 합칠 수 있는 규칙(freshness, null_ratio, value_range, enum 등)은 하나의 SQL 쿼리로 합쳐서 1회 DB 라운드트립으로 처리
+  - 합칠 수 없는 규칙(custom_sql)은 `asyncio.gather`로 동시 실행
+  - 전략: 합칠 수 있는 건 합치고, 나머지는 병렬 실행
 
 ### Quality Failure Handling
 
