@@ -1,5 +1,6 @@
-"""LiteLLM wrapper with per-agent model configuration."""
+"""LiteLLM wrapper with per-agent model configuration and tool calling support."""
 
+import json
 import re
 
 from litellm import completion as litellm_completion
@@ -36,3 +37,49 @@ class LLMClient:
         response = litellm_completion(model=model, messages=messages)
         content = response.choices[0].message.content
         return _strip_code_fences(content)
+
+    def completion_with_tools(
+        self,
+        role: str,
+        messages: list[dict],
+        tools: list[dict],
+    ) -> tuple[dict, list[dict]]:
+        """Call LLM with tool definitions.
+
+        Returns:
+            (message_dict, tool_calls)
+            message_dict: {"role": "assistant", "content": ..., "tool_calls": [...]}
+            tool_calls: [{"name": str, "args": dict, "id": str}, ...]
+        """
+        model = self.get_model_string(role)
+        kwargs: dict = {"model": model, "messages": messages}
+        if tools:
+            kwargs["tools"] = tools
+
+        response = litellm_completion(**kwargs)
+        message = response.choices[0].message
+
+        msg_dict: dict = {"role": "assistant", "content": message.content or ""}
+        if message.tool_calls:
+            msg_dict["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in message.tool_calls
+            ]
+
+        tool_calls = []
+        if message.tool_calls:
+            for tc in message.tool_calls:
+                tool_calls.append({
+                    "name": tc.function.name,
+                    "args": json.loads(tc.function.arguments),
+                    "id": tc.id,
+                })
+
+        return msg_dict, tool_calls
