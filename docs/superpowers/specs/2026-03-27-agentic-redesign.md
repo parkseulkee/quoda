@@ -12,7 +12,7 @@ LLM이 의도 파악에 사용되지만 그 결과가 실행 흐름에 반영되
 
 quada의 실행 흐름에는 세 가지 이유로 LangGraph가 적합하다:
 
-1. **사이클 존재**: `term_not_found` / `sql_error` → escalate → semantic_query_node 재시도 흐름이 사이클을 형성
+1. **사이클 존재**: `term_not_found` → escalate → semantic_query_node 재시도 흐름이 사이클을 형성
 2. **Human-in-the-loop**: `escalate_node`에서 사용자 입력을 기다려야 하며, LangGraph의 `interrupt()`가 이를 처리
 3. **State 영속성**: `interrupt()` pause 동안 State를 Checkpointer가 보존, `Command(resume=...)` 으로 재개
 
@@ -29,15 +29,15 @@ LangGraph StateGraph를 사용한 Supervisor 패턴:
 ### StateGraph (사이클 포함)
 
 ```
-                    ┌─────────────────────────────────┐
-                    ↓                                 │ (term_not_found → 재시도)
-semantic_query_node → quality_node → execute_node → interpret_node → END
-        ↑                ↓                ↓
-        │          escalate_node ←────────┘ (quality_warning / sql_error)
-        │                ↓ interrupt()
-        │          [사용자 입력 대기]
-        │                ↓ Command(resume=...)
-        └────────────────┘ (term_not_found: 사용자 정의 반영 후 재시도)
+semantic_query_node ──sql_generated──→ quality_node ──quality_passed──→ execute_node ──executed──→ interpret_node ──done──→ END
+        ↑                                    │                                │
+        │                          quality_warning                        sql_error
+        │                                    ↓                                ↓
+        │                             escalate_node ←───────────────────────────
+        │                          (interrupt() — 사용자 입력 대기)
+        │                                    │
+        │              term_not_found ───────┤─── quality_warning+Y → execute_approved → execute_node
+        └──── term_clarified ────────────────┘─── quality_warning+N / sql_error → escalation_done → END
 ```
 
 ### 노드 구성
@@ -73,11 +73,11 @@ class QuadaState(TypedDict):
 
 | 노드 | 읽는 State 필드 | 쓰는 State 필드 |
 |---|---|---|
-| semantic_query | `user_query`, `user_clarification` | `sql`, `tables_used`, `resolved_terms` |
-| quality | `sql`, `tables_used` | `quality_results` |
-| execute | `sql` | `query_results` |
-| interpret | `query_results`, `quality_results`, `user_query` | - |
-| escalate | `stop_reason`, `escalation_question` | `user_clarification` |
+| semantic_query | `user_query`, `user_clarification` | `sql`, `tables_used`, `resolved_terms`, `stop_reason` |
+| quality | `sql`, `tables_used` | `quality_results`, `escalation_question`, `stop_reason` |
+| execute | `sql` | `query_results`, `stop_reason` |
+| interpret | `query_results`, `quality_results`, `user_query` | `stop_reason` |
+| escalate | `stop_reason`, `escalation_question` | `user_clarification`, `stop_reason` |
 
 각 노드는 자기 역할에 필요한 최소 필드만 읽어 로컬 messages를 구성한다:
 
@@ -249,7 +249,7 @@ LLM은 전체 YAML 대신 이 쿼리에 필요한 3개 항목의 상세 정보�
 |---|---|---|
 | `get_entity_definition(name)` | entity 전체 정의 (컬럼, 관계, PK) | - |
 | `get_metric_definition(name)` | metric 전체 정의 (expression, filter, dimensions) | - |
-| `get_glossary_term(term)` | glossary 전체 정의 (sql_condition, aliases) | - |
+| `get_glossary_term(term)` | glossary 전체 정의 (sql_condition, entity, definition) | - |
 | `generate_sql(context)` | 조회된 정의들로 SQL 생성 | `sql_generated` |
 | `report_term_not_found(term)` | 매칭 불가 시 에스컬레이션 | `term_not_found` |
 
