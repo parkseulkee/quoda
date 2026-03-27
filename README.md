@@ -26,7 +26,10 @@ uv run quada init --path ./my-project
 # 설정 검증
 uv run quada validate --path ./my-project
 
-# 데이터 질의 (DB 연결 필요)
+# 메타데이터 인덱스 빌드 (ask 실행 전 필수)
+uv run quada index build --path ./my-project
+
+# 데이터 질의 (DB 연결 + LLM API 키 필요)
 uv run quada ask "이탈 고객의 매출 보여줘" --path ./my-project
 
 # 품질 검사 (DB 연결 필요)
@@ -40,15 +43,38 @@ uv run quada config --path ./my-project
 
 ```
 src/quada/
-  core/       config, orchestrator
-  semantic/   models, loader, matcher
+  core/       state, orchestrator (LangGraph StateGraph)
+  agents/     base (tool call loop), semantic_query, quality, interpret
+  nodes/      semantic_query, quality, execute, interpret, escalate
+  tools/      base (TerminalResult), semantic_tools, quality_tools, interpret_tools
+  semantic/   models, loader, index (MetadataIndex)
   db/         connector, executor
   llm/        client, prompts
   quality/    rules, engine
-  agents/     base, semantic_query, quality, interpret
   cli/        app, display
   viz/        charts
 ```
+
+## Architecture
+
+quada는 LangGraph 기반 agentic pipeline으로 동작합니다.
+
+```
+CLI
+ ↓
+StateGraph (stop_reason 기반 conditional routing)
+ ├─ semantic_query_node  — MetadataIndex를 보고 필요한 정의만 조회 후 SQL 생성
+ ├─ quality_node         — 대상 테이블 품질 검증 + 영향도 분석
+ ├─ execute_node         — SQL 실행 (read-only)
+ ├─ interpret_node       — 결과 자연어 해석 + 시각화
+ └─ escalate_node        — interrupt()로 사용자 입력 대기 (human-in-the-loop)
+```
+
+각 노드는 LLM + tool call loop(ReAct)로 동작하며, 실패 시 escalate_node를 통해 사용자에게 에스컬레이션합니다.
+
+### MetadataIndex
+
+`quada index build`로 생성되는 `.quada/metadata_index.json`에 semantic layer의 경량 요약을 저장합니다. `quada ask` 실행 시 LLM이 이 인덱스를 보고 어떤 entity/metric/glossary 정의를 상세 조회할지 결정합니다.
 
 ## Configuration
 
@@ -113,7 +139,21 @@ uv run quada validate --path tutorial/
 ✓ Semantic layer is valid
 ```
 
-### 3. 품질 검사
+### 3. 메타데이터 인덱스 빌드
+
+```bash
+uv run quada index build --path tutorial/
+```
+
+예상 출력:
+```
+✓ metadata_index.json saved to tutorial/.quada
+  Entities: 2
+  Metrics:  1
+  Glossary: 3
+```
+
+### 4. 품질 검사
 
 ```bash
 uv run quada check --path tutorial/
@@ -130,15 +170,18 @@ Overall: WARN
 
 orders 테이블에 status가 NULL인 행이 2건 있어 경고가 발생합니다.
 
-### 4. 자연어 질의 (LLM API 키 필요)
+### 5. 자연어 질의 (LLM API 키 필요)
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 
-uv run quada ask "이탈 고객의 매출 보여줘" --path tutorial/ --show-sql
+uv run quada ask "이탈 고객의 매출 보여줘" --path tutorial/
 uv run quada ask "신규 고객 수" --path tutorial/
-uv run quada ask "이번달 총 매출" --path tutorial/ --skip-quality
+uv run quada ask "이번달 총 매출" --path tutorial/
 ```
+
+품질 경고가 있으면 계속 진행할지 사용자에게 확인합니다.
+용어를 찾지 못하면 정의를 직접 입력할 수 있습니다.
 
 ### 샘플 데이터 요약
 
