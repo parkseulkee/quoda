@@ -1,139 +1,106 @@
-"""Orchestrator: coordinates agents, manages execution flow."""
+"""Orchestrator: builds and compiles the LangGraph StateGraph."""
 
-import json
-from collections.abc import Callable
-from dataclasses import dataclass
+from pathlib import Path
+
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
 
 from quada.agents.interpret import InterpretAgent
 from quada.agents.quality import QualityAgent
 from quada.agents.semantic_query import SemanticQueryAgent
+from quada.core.state import QuadaState
 from quada.db.executor import SQLExecutor
 from quada.llm.client import LLMClient
-from quada.llm.prompts import ORCHESTRATOR_SYSTEM_PROMPT
-from quada.semantic.models import QualityRule
-
-# Callback type: (step_name, detail_data) -> None
-ProgressCallback = Callable[[str, dict], None]
-
-
-@dataclass
-class OrchestratorResult:
-    sql: str
-    query_results: list[dict]
-    quality_check: dict | None
-    quality_analysis: dict | None
-    interpret_result: dict
-    sql_generation: dict
+from quada.nodes.escalate import run_escalate_node
+from quada.nodes.execute import run_execute_node
+from quada.nodes.interpret import run_interpret_node
+from quada.nodes.quality import run_quality_node
+from quada.nodes.semantic_query import run_semantic_query_node
+from quada.semantic.loader import SemanticContext
 
 
+def build_graph(
+    llm_client: LLMClient,
+    semantic_context: SemanticContext,
+    executor: SQLExecutor,
+    project_dir: Path,
+):
+    """Build and compile the LangGraph StateGraph.
+
+    Returns a compiled graph with MemorySaver checkpointer for interrupt() support.
+    Each node is a closure capturing its dependencies — no global state.
+    """
+    semantic_agent = SemanticQueryAgent(llm_client=llm_client, semantic_context=semantic_context)
+    quality_agent = QualityAgent(
+        llm_client=llm_client,
+        rules=semantic_context.quality.rules,
+        executor=executor,
+    )
+    interpret_agent = InterpretAgent(llm_client=llm_client)
+
+    def semantic_query_node(state: QuadaState) -> dict:
+        return run_semantic_query_node(state, semantic_agent, project_dir)
+
+    def quality_node(state: QuadaState) -> dict:
+        return run_quality_node(state, quality_agent)
+
+    def execute_node(state: QuadaState) -> dict:
+        return run_execute_node(state, executor)
+
+    def interpret_node(state: QuadaState) -> dict:
+        return run_interpret_node(state, interpret_agent)
+
+    def escalate_node(state: QuadaState) -> dict:
+        return run_escalate_node(state)
+
+    def route(state: QuadaState) -> str:
+        return state["stop_reason"]
+
+    graph = StateGraph(QuadaState)
+
+    graph.add_node("semantic_query", semantic_query_node)
+    graph.add_node("quality", quality_node)
+    graph.add_node("execute", execute_node)
+    graph.add_node("interpret", interpret_node)
+    graph.add_node("escalate", escalate_node)
+
+    graph.set_entry_point("semantic_query")
+
+    graph.add_conditional_edges("semantic_query", route, {
+        "sql_generated": "quality",
+        "term_not_found": "escalate",
+    })
+    graph.add_conditional_edges("quality", route, {
+        "quality_passed": "execute",
+        "quality_warning": "escalate",
+    })
+    graph.add_conditional_edges("execute", route, {
+        "executed": "interpret",
+        "sql_error": "escalate",
+    })
+    graph.add_conditional_edges("interpret", route, {
+        "done": END,
+    })
+    graph.add_conditional_edges("escalate", route, {
+        "term_clarified": "semantic_query",
+        "sql_retry": "semantic_query",
+        "execute_approved": "execute",
+        "escalation_done": END,
+    })
+
+    checkpointer = MemorySaver()
+    return graph.compile(checkpointer=checkpointer)
+
+
+# ---------------------------------------------------------------------------
+# Compatibility stub — Task 12 will replace cli/app.py's Orchestrator usage.
+# Importing this name must not raise ImportError so test collection succeeds.
+# ---------------------------------------------------------------------------
 class Orchestrator:
-    """Coordinates the 3-agent pipeline: Semantic Query → Quality → Interpret."""
+    """Deprecated stub. Use build_graph() instead. Removed in Task 12."""
 
-    def __init__(
-        self,
-        llm_client: LLMClient,
-        semantic_agent: SemanticQueryAgent,
-        quality_agent: QualityAgent,
-        interpret_agent: InterpretAgent,
-        executor: SQLExecutor,
-        quality_rules: list[QualityRule],
-    ):
-        self.llm_client = llm_client
-        self.semantic_agent = semantic_agent
-        self.quality_agent = quality_agent
-        self.interpret_agent = interpret_agent
-        self.executor = executor
-        self.quality_rules = quality_rules
-
-    def _emit(self, callback: ProgressCallback | None, step: str, data: dict) -> None:
-        if callback:
-            callback(step, data)
-
-    async def run(
-        self,
-        user_query: str,
-        skip_quality: bool = False,
-        on_progress: ProgressCallback | None = None,
-    ) -> OrchestratorResult:
-        """Run the full pipeline: semantic → quality → execute → interpret."""
-
-        # Step 1: Parse intent via LLM
-        self._emit(on_progress, "intent_start", {})
-        intent_response = self.llm_client.completion(
-            role="orchestrator",
-            messages=[
-                {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT},
-                {"role": "user", "content": user_query},
-            ],
-        )
-        self._emit(on_progress, "intent_done", {"response": intent_response})
-
-        # Step 2: Semantic Query Agent generates SQL
-        self._emit(on_progress, "semantic_start", {})
-        sql_result = self.semantic_agent.generate_sql(user_query)
-        self._emit(on_progress, "semantic_done", {
-            "sql": sql_result.sql,
-            "tables_used": sql_result.tables_used,
-            "resolved_terms": sql_result.resolved_terms,
-            "explanation": sql_result.explanation,
-        })
-
-        # Step 3: Quality check (unless skipped)
-        quality_check = None
-        quality_analysis = None
-        if not skip_quality and self.quality_rules:
-            tables = sql_result.tables_used
-            table_names = [t.split(".")[-1] for t in tables]
-
-            self._emit(on_progress, "quality_start", {"tables": table_names})
-            quality_check = await self.quality_agent.engine.check(
-                rules=self.quality_rules,
-                tables=table_names,
-                where_clause=None,
-            )
-            self._emit(on_progress, "quality_done", {
-                "overall_status": quality_check.overall_status,
-                "results": [
-                    {"rule": r.rule_name, "status": r.status, "message": r.message}
-                    for r in quality_check.results
-                ],
-            })
-
-            if quality_check.overall_status != "pass":
-                self._emit(on_progress, "quality_analysis_start", {})
-                quality_analysis = self.quality_agent.analyze_impact(
-                    check_result=quality_check,
-                    sql=sql_result.sql,
-                    user_query=user_query,
-                )
-                self._emit(on_progress, "quality_analysis_done", {
-                    "overall_status": quality_analysis.overall_status,
-                    "recommendation": quality_analysis.recommendation,
-                })
-
-        # Step 4: Execute SQL
-        self._emit(on_progress, "execute_start", {"sql": sql_result.sql})
-        query_results = self.executor.execute(sql_result.sql)
-        self._emit(on_progress, "execute_done", {
-            "row_count": len(query_results),
-            "rows": query_results[:50],
-        })
-
-        # Step 5: Interpret results
-        self._emit(on_progress, "interpret_start", {})
-        interpret_result = self.interpret_agent.interpret(
-            query_results=query_results,
-            sql=sql_result.sql,
-            user_query=user_query,
-            quality_analysis=quality_analysis,
-        )
-        self._emit(on_progress, "interpret_done", {})
-
-        return OrchestratorResult(
-            sql=sql_result.sql,
-            query_results=query_results,
-            quality_check=quality_check,
-            quality_analysis=quality_analysis,
-            interpret_result=interpret_result,
-            sql_generation=sql_result,
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError(
+            "Orchestrator has been replaced by build_graph(). "
+            "See quada.core.orchestrator.build_graph."
         )
