@@ -1,0 +1,15 @@
+entity:
+  name: customer
+  description: "서비스에 가입한 고객"
+  table: public.customers
+  columns:
+    - name: id
+      type: integer
+      primary_key: true
+    - name: email
+      type: string
+    - name: last_purchase_date
+      type: timestamp
+      description: "마지막 구매일"
+    - name: segment
+      type: string

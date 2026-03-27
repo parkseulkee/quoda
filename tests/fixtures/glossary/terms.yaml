@@ -1,0 +1,8 @@
+glossary:
+  - term: "이탈 고객"
+    definition: "최근 90일간 구매 이력이 없는 고객"
+    sql_condition: "customer.last_purchase_date < NOW() - INTERVAL '90 days'"
+    entity: customer
+    aliases:
+      - "churned customer"
+      - "비활성 고객"

@@ -1,0 +1,12 @@
+metric:
+  name: revenue
+  description: "완료된 주문의 총 매출액"
+  type: sum
+  expression: "orders.amount"
+  filter: "orders.status = 'completed'"
+  entities:
+    - order
+  dimensions: []
+  aliases:
+    - "매출"
+    - "매출액"
