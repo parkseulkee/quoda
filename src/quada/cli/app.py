@@ -13,7 +13,7 @@ from quada.cli.display import (
     print_interpret_result,
     print_sql,
     print_error,
-    progress_callback,
+    print_query_results,
 )
 from quada.core.config import load_config
 from quada.db.connector import create_engine_from_config
@@ -21,12 +21,9 @@ from quada.db.executor import SQLExecutor
 from quada.llm.client import LLMClient
 from quada.semantic.index import MetadataIndex
 from quada.semantic.loader import SemanticLoader
-from quada.semantic.matcher import SemanticMatcher
-from quada.agents.semantic_query import SemanticQueryAgent
-from quada.agents.quality import QualityAgent
-from quada.agents.interpret import InterpretAgent
+from quada.core.orchestrator import build_graph
+from quada.core.state import QuadaState
 from quada.quality.engine import QualityEngine
-from quada.core.orchestrator import Orchestrator
 
 app = typer.Typer(name="quada", help="Semantic layer + data quality + natural language query agent")
 console = Console()
@@ -163,55 +160,73 @@ def ask(
     """Ask a natural language question about your data."""
     load_dotenv(Path(path) / ".env")
     config_path = Path(path) / "quada.yaml"
+    project_dir = Path(path).resolve()
+
     try:
         config = load_config(config_path)
     except FileNotFoundError:
         print_error(f"Config not found: {config_path}. Run 'quada init' first.")
         raise typer.Exit(1)
 
-    # Build components
+    index_path = project_dir / ".quada" / "metadata_index.json"
+    if not index_path.exists():
+        print_error("metadata_index.json not found. Run 'quada index build' first.")
+        raise typer.Exit(1)
+
     engine = create_engine_from_config(config.database)
     executor = SQLExecutor(engine)
     llm_client = LLMClient(config.llm)
 
     loader = SemanticLoader(
-        models_dir=Path(path) / "models",
-        metrics_dir=Path(path) / "metrics",
-        glossary_dir=Path(path) / "glossary",
-        quality_dir=Path(path) / "quality",
+        models_dir=project_dir / "models",
+        metrics_dir=project_dir / "metrics",
+        glossary_dir=project_dir / "glossary",
+        quality_dir=project_dir / "quality",
     )
     ctx = loader.load_all()
 
-    matcher = SemanticMatcher(glossary=ctx.glossary, metrics=ctx.metrics, llm_client=llm_client)
-    semantic_agent = SemanticQueryAgent(llm_client=llm_client, semantic_context=ctx, matcher=matcher)
-    quality_engine = QualityEngine(executor)
-    quality_agent = QualityAgent(llm_client=llm_client, engine=quality_engine)
-    interpret_agent = InterpretAgent(llm_client=llm_client)
-
-    orchestrator = Orchestrator(
+    graph = build_graph(
         llm_client=llm_client,
-        semantic_agent=semantic_agent,
-        quality_agent=quality_agent,
-        interpret_agent=interpret_agent,
+        semantic_context=ctx,
         executor=executor,
-        quality_rules=ctx.quality.rules,
+        project_dir=project_dir,
     )
 
-    # Run pipeline with real-time progress
-    result = asyncio.run(orchestrator.run(
-        query,
-        skip_quality=skip_quality,
-        on_progress=progress_callback,
-    ))
+    initial_state: QuadaState = {
+        "user_query": query,
+        "sql": None,
+        "tables_used": [],
+        "resolved_terms": {},
+        "quality_results": [],
+        "query_results": [],
+        "error": None,
+        "escalation_question": None,
+        "user_clarification": None,
+        "stop_reason": None,
+    }
 
-    if result.quality_analysis and result.quality_analysis.overall_status != "pass":
-        print_quality_warning(result.quality_analysis)
-        proceed = typer.confirm("Proceed with execution?", default=True)
-        if not proceed:
-            raise typer.Exit(0)
+    thread_config = {"configurable": {"thread_id": "quada-session"}}
 
-    console.print()
-    print_interpret_result(result.interpret_result)
+    # Run graph with interrupt/resume loop
+    graph.invoke(initial_state, config=thread_config)
+
+    while True:
+        state_snapshot = graph.get_state(thread_config)
+        if not state_snapshot.next:
+            break
+        current_values = state_snapshot.values
+        question = current_values.get("escalation_question", "입력이 필요합니다.")
+        console.print(f"\n[yellow]{question}[/yellow]")
+        user_input = typer.prompt("")
+        from langgraph.types import Command
+        graph.invoke(Command(resume=user_input), config=thread_config)
+
+    # Get final state and display results
+    final_state = graph.get_state(thread_config).values
+    if final_state.get("sql"):
+        print_sql(final_state["sql"])
+    if final_state.get("query_results"):
+        print_query_results(final_state["query_results"])
 
 
 @app.command()

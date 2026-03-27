@@ -140,3 +140,16 @@ def print_sql(sql: str) -> None:
 def print_error(message: str) -> None:
     """Print error message to console."""
     console.print(f"[red]✗ {message}[/red]")
+
+
+def print_query_results(rows: list[dict]) -> None:
+    """Print query results as a Rich table."""
+    if not rows:
+        console.print("[yellow]No results.[/yellow]")
+        return
+    table = Table(show_header=True, header_style="bold")
+    for col in rows[0].keys():
+        table.add_column(str(col))
+    for row in rows[:100]:
+        table.add_row(*[str(v) if v is not None else "" for v in row.values()])
+    console.print(table)
