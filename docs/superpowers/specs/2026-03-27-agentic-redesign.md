@@ -152,14 +152,12 @@ YAML 전체를 LLM에 주는 대신, 경량 인덱스를 먼저 보여주고 LLM
     {
       "name": "customer",
       "table": "customers",
-      "aliases": ["고객"],
       "description": "서비스에 가입한 고객",
       "key_columns": ["id", "email", "last_purchase_date", "segment"]
     },
     {
       "name": "order",
       "table": "orders",
-      "aliases": ["주문"],
       "description": "고객의 구매 주문",
       "key_columns": ["id", "customer_id", "amount", "status", "order_date"]
     }
@@ -167,13 +165,11 @@ YAML 전체를 LLM에 주는 대신, 경량 인덱스를 먼저 보여주고 LLM
   "metrics": [
     {
       "name": "revenue",
-      "aliases": ["매출", "수익", "매출액"],
       "description": "완료된 주문의 총 매출액",
       "entities": ["order"]
     },
     {
       "name": "dau",
-      "aliases": ["일간 활성 사용자", "DAU"],
       "description": "하루 동안 앱을 사용한 유저 수",
       "entities": ["customer"]
     }
@@ -181,13 +177,11 @@ YAML 전체를 LLM에 주는 대신, 경량 인덱스를 먼저 보여주고 LLM
   "glossary": [
     {
       "term": "이탈 고객",
-      "aliases": ["churned customer", "비활성 고객", "이탈자"],
       "description": "최근 90일간 구매 이력이 없는 고객",
       "entity": "customer"
     },
     {
       "term": "신규 고객",
-      "aliases": ["new customer", "신규 가입자"],
       "description": "최근 30일 이내 가입한 고객",
       "entity": "customer"
     }
@@ -196,7 +190,6 @@ YAML 전체를 LLM에 주는 대신, 경량 인덱스를 먼저 보여주고 LLM
 ```
 
 **인덱스 설계 원칙:**
-- `aliases`: LLM이 사용자 용어와 매핑하는 핵심 필드 — 충분히 넣을수록 좋다
 - `key_columns`: 컬럼명만 (타입/설명 없음) — "이 테이블에 내가 필요한 컬럼이 있는가?" 판단용
 - `entities`: metric이 어떤 테이블 기반인지 — 조인 구조 추론용
 - `entity`: glossary 용어가 어느 테이블에 적용되는지
