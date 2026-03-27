@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from quada.core.config import LLMModelConfig, LLMConfig, AgentsLLMConfig
-from quada.llm.client import LLMClient
+from quada.llm.client import LLMClient, _strip_code_fences
 
 
 @pytest.fixture
@@ -53,3 +53,25 @@ def test_completion_calls_litellm(mock_completion, llm_config):
         model="anthropic/claude-opus-4-6",
         messages=[{"role": "user", "content": "hello"}],
     )
+
+
+class TestStripCodeFences:
+    def test_strips_json_fence(self):
+        text = '```json\n{"key": "value"}\n```'
+        assert _strip_code_fences(text) == '{"key": "value"}'
+
+    def test_strips_plain_fence(self):
+        text = '```\nSELECT 1\n```'
+        assert _strip_code_fences(text) == "SELECT 1"
+
+    def test_strips_sql_fence(self):
+        text = '```sql\nSELECT * FROM orders;\n```'
+        assert _strip_code_fences(text) == "SELECT * FROM orders;"
+
+    def test_no_fence_passthrough(self):
+        text = '{"key": "value"}'
+        assert _strip_code_fences(text) == '{"key": "value"}'
+
+    def test_strips_whitespace(self):
+        text = '  ```json\n{"a": 1}\n```  '
+        assert _strip_code_fences(text) == '{"a": 1}'

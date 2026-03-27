@@ -1,8 +1,17 @@
 """LiteLLM wrapper with per-agent model configuration."""
 
+import re
+
 from litellm import completion as litellm_completion
 
 from quada.core.config import LLMConfig
+
+
+def _strip_code_fences(text: str) -> str:
+    """Strip markdown code fences (```json ... ```) from LLM responses."""
+    stripped = re.sub(r"^```\w*\n?", "", text.strip())
+    stripped = re.sub(r"\n?```$", "", stripped.strip())
+    return stripped.strip()
 
 
 class LLMClient:
@@ -25,4 +34,5 @@ class LLMClient:
         """Call LLM completion for the given role."""
         model = self.get_model_string(role)
         response = litellm_completion(model=model, messages=messages)
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        return _strip_code_fences(content)
