@@ -13,6 +13,7 @@ from quada.cli.display import (
     print_interpret_result,
     print_sql,
     print_error,
+    progress_callback,
 )
 from quada.core.config import load_config
 from quada.db.connector import create_engine_from_config
@@ -129,7 +130,6 @@ def ask(
     query: str = typer.Argument(help="Natural language query"),
     path: Path = typer.Option(".", help="Project directory"),
     skip_quality: bool = typer.Option(False, "--skip-quality", help="Skip quality checks"),
-    show_sql: bool = typer.Option(False, "--show-sql", help="Show generated SQL"),
 ):
     """Ask a natural language question about your data."""
     load_dotenv(Path(path) / ".env")
@@ -168,11 +168,12 @@ def ask(
         quality_rules=ctx.quality.rules,
     )
 
-    # Run pipeline
-    result = asyncio.run(orchestrator.run(query, skip_quality=skip_quality))
-
-    if show_sql:
-        print_sql(result.sql)
+    # Run pipeline with real-time progress
+    result = asyncio.run(orchestrator.run(
+        query,
+        skip_quality=skip_quality,
+        on_progress=progress_callback,
+    ))
 
     if result.quality_analysis and result.quality_analysis.overall_status != "pass":
         print_quality_warning(result.quality_analysis)
@@ -180,6 +181,7 @@ def ask(
         if not proceed:
             raise typer.Exit(0)
 
+    console.print()
     print_interpret_result(result.interpret_result)
 
 
