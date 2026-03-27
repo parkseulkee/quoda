@@ -1,16 +1,15 @@
 from quada.cli.display import format_quality_warning, format_interpret_result
-from quada.agents.quality import QualityAnalysis, QualityIssue
 from quada.agents.interpret import InterpretResult
 
 
 def test_format_quality_warning():
-    analysis = QualityAnalysis(
-        overall_status="warn",
-        issues=[
-            QualityIssue("null_check", "warn", "status NULL 3.2%", "~3%"),
+    analysis = {
+        "overall_status": "warn",
+        "issues": [
+            {"status": "warn", "rule": "null_check", "impact": "status NULL 3.2%", "estimated_error": "~3%"},
         ],
-        recommendation="매출이 약 3% 과소 집계될 수 있습니다.",
-    )
+        "recommendation": "매출이 약 3% 과소 집계될 수 있습니다.",
+    }
     output = format_quality_warning(analysis)
     assert "warn" in output.lower() or "⚠" in output
     assert "null_check" in output or "status" in output

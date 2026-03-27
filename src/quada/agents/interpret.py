@@ -4,7 +4,6 @@ import json
 from dataclasses import dataclass
 
 from quada.agents.base import BaseAgent
-from quada.agents.quality import QualityAnalysis
 from quada.llm.client import LLMClient
 from quada.llm.prompts import INTERPRET_AGENT_SYSTEM_PROMPT
 
@@ -32,7 +31,7 @@ class InterpretAgent(BaseAgent):
         query_results: list[dict],
         sql: str,
         user_query: str,
-        quality_analysis: QualityAnalysis | None = None,
+        quality_analysis: dict | None = None,
     ) -> InterpretResult:
         """Interpret query results with quality context."""
         context = {
@@ -42,14 +41,7 @@ class InterpretAgent(BaseAgent):
             "row_count": len(query_results),
         }
         if quality_analysis:
-            context["quality"] = {
-                "status": quality_analysis.overall_status,
-                "issues": [
-                    {"rule": i.rule, "impact": i.impact, "error": i.estimated_error}
-                    for i in quality_analysis.issues
-                ],
-                "recommendation": quality_analysis.recommendation,
-            }
+            context["quality"] = quality_analysis
 
         response = self.call_llm("Interpret these query results.", context=context)
 

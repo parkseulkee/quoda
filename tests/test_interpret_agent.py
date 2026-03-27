@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from quada.agents.interpret import InterpretAgent, InterpretResult
-from quada.agents.quality import QualityAnalysis, QualityIssue
 
 
 @pytest.fixture
@@ -20,15 +19,16 @@ def interpret_agent():
 
 
 def test_interpret_results(interpret_agent):
+    quality_analysis = {
+        "overall_status": "warn",
+        "issues": [{"rule": "null_check", "status": "warn", "impact": "NULL 3.2%", "estimated_error": "~3%"}],
+        "recommendation": "매출이 약 3% 과소 집계될 수 있습니다.",
+    }
     result = interpret_agent.interpret(
         query_results=[{"revenue": 12450000}],
         sql="SELECT SUM(amount) as revenue FROM orders",
         user_query="이탈 고객의 매출",
-        quality_analysis=QualityAnalysis(
-            overall_status="warn",
-            issues=[QualityIssue("null_check", "warn", "NULL 3.2%", "~3%")],
-            recommendation="매출이 약 3% 과소 집계될 수 있습니다.",
-        ),
+        quality_analysis=quality_analysis,
     )
     assert isinstance(result, InterpretResult)
     assert "12,450,000" in result.summary

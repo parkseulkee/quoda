@@ -7,7 +7,6 @@ from rich.table import Table
 from rich.text import Text
 
 from quada.agents.interpret import InterpretResult
-from quada.agents.quality import QualityAnalysis
 
 
 console = Console()
@@ -91,15 +90,16 @@ def progress_callback(step: str, data: dict) -> None:
         console.print("[bold cyan]5/5[/bold cyan] [dim]Interpreting results...[/dim]")
 
 
-def format_quality_warning(analysis: QualityAnalysis) -> str:
+def format_quality_warning(analysis: dict) -> str:
     """Format quality analysis as a readable string."""
     lines = []
-    lines.append(f"⚠ Data Quality: {analysis.overall_status.upper()}")
-    for issue in analysis.issues:
-        lines.append(f"  - [{issue.status}] {issue.rule}: {issue.impact}")
-        if issue.estimated_error:
-            lines.append(f"    Estimated error: {issue.estimated_error}")
-    lines.append(f"  Recommendation: {analysis.recommendation}")
+    status = analysis.get("overall_status", "warn")
+    lines.append(f"⚠ Data Quality: {status.upper()}")
+    for issue in analysis.get("issues", []):
+        lines.append(f"  - [{issue.get('status', '')}] {issue.get('rule', '')}: {issue.get('impact', '')}")
+        if issue.get("estimated_error"):
+            lines.append(f"    Estimated error: {issue['estimated_error']}")
+    lines.append(f"  Recommendation: {analysis.get('recommendation', '')}")
     return "\n".join(lines)
 
 
@@ -123,7 +123,7 @@ def format_interpret_result(result: InterpretResult) -> str:
     return "\n".join(lines)
 
 
-def print_quality_warning(analysis: QualityAnalysis) -> None:
+def print_quality_warning(analysis: dict) -> None:
     """Print quality warning to console."""
     text = format_quality_warning(analysis)
     console.print(Panel(text, title="Data Quality", border_style="yellow"))

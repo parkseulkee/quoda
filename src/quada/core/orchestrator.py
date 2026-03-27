@@ -5,12 +5,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from quada.agents.interpret import InterpretAgent, InterpretResult
-from quada.agents.quality import QualityAgent, QualityAnalysis
+from quada.agents.quality import QualityAgent
 from quada.agents.semantic_query import SemanticQueryAgent
 from quada.db.executor import SQLExecutor
 from quada.llm.client import LLMClient
 from quada.llm.prompts import ORCHESTRATOR_SYSTEM_PROMPT
-from quada.quality.engine import QualityCheckResult
 from quada.semantic.models import QualityRule
 
 # Callback type: (step_name, detail_data) -> None
@@ -21,8 +20,8 @@ ProgressCallback = Callable[[str, dict], None]
 class OrchestratorResult:
     sql: str
     query_results: list[dict]
-    quality_check: QualityCheckResult | None
-    quality_analysis: QualityAnalysis | None
+    quality_check: dict | None
+    quality_analysis: dict | None
     interpret_result: InterpretResult
     sql_generation: dict
 

@@ -1,58 +1,58 @@
-import json
-from unittest.mock import MagicMock, AsyncMock
+"""Tests for the new QualityAgent (tool call loop pattern)."""
+from unittest.mock import MagicMock
 
 import pytest
 
 from quada.agents.quality import QualityAgent
-from quada.quality.engine import QualityCheckResult
-from quada.quality.rules import RuleResult
+from quada.semantic.models import QualityRule
 
 
 @pytest.fixture
 def quality_agent():
     llm_client = MagicMock()
-    llm_client.completion.return_value = json.dumps({
-        "overall_status": "warn",
-        "issues": [
-            {
-                "rule": "orders_status_not_null",
-                "status": "warn",
-                "impact": "status 컬럼 NULL 3.2%로 매출이 과소 집계될 수 있음",
-                "estimated_error": "~3%",
-            }
-        ],
-        "recommendation": "매출이 실제보다 약 3% 낮을 수 있습니다.",
-    })
-    engine = MagicMock()
-    return QualityAgent(llm_client=llm_client, engine=engine)
+    executor = MagicMock()
+    rules = [
+        QualityRule(name="orders_status_not_null", type="null_ratio", table="orders", column="status", threshold=0.01),
+    ]
+    return QualityAgent(llm_client=llm_client, rules=rules, executor=executor)
 
 
-def test_analyze_impact(quality_agent):
-    check_result = QualityCheckResult(results=[
-        RuleResult("orders_freshness", "pass", "Data is fresh"),
-        RuleResult("orders_status_not_null", "warn", "null ratio 3.2% exceeds 1%", "0.032"),
-    ])
-    analysis = quality_agent.analyze_impact(
-        check_result=check_result,
-        sql="SELECT SUM(amount) FROM orders WHERE status = 'completed'",
-        user_query="이탈 고객의 매출",
+def test_quality_agent_run_returns_passed(quality_agent):
+    """QualityAgent.run() returns stop_reason='quality_passed' when LLM calls report_quality_passed."""
+    # Simulate LLM calling report_quality_passed terminal tool
+    quality_agent.llm_client.completion_with_tools.return_value = (
+        {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "tc1", "type": "function", "function": {"name": "report_quality_passed", "arguments": "{}"}}
+        ]},
+        [{"id": "tc1", "name": "report_quality_passed", "args": {}}],
     )
-    assert analysis.overall_status == "warn"
-    assert len(analysis.issues) > 0
+
+    state = {
+        "sql": "SELECT SUM(amount) FROM orders",
+        "tables_used": ["orders"],
+        "user_query": "총 매출은?",
+    }
+    result = quality_agent.run(state)
+    assert result["stop_reason"] == "quality_passed"
 
 
-def test_analyze_impact_all_pass(quality_agent):
-    quality_agent.llm_client.completion.return_value = json.dumps({
-        "overall_status": "pass",
-        "issues": [],
-        "recommendation": "데이터 품질에 문제가 없습니다.",
-    })
-    check_result = QualityCheckResult(results=[
-        RuleResult("orders_freshness", "pass", "Data is fresh"),
-    ])
-    analysis = quality_agent.analyze_impact(
-        check_result=check_result,
-        sql="SELECT 1",
-        user_query="test",
+def test_quality_agent_run_returns_warning(quality_agent):
+    """QualityAgent.run() returns stop_reason='quality_warning' with escalation_question."""
+    quality_agent.llm_client.completion_with_tools.return_value = (
+        {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "tc1", "type": "function", "function": {
+                "name": "report_quality_warning",
+                "arguments": '{"message": "status NULL 3%", "question": "계속 진행? (y/n)"}',
+            }}
+        ]},
+        [{"id": "tc1", "name": "report_quality_warning", "args": {"message": "status NULL 3%", "question": "계속 진행? (y/n)"}}],
     )
-    assert analysis.overall_status == "pass"
+
+    state = {
+        "sql": "SELECT SUM(amount) FROM orders",
+        "tables_used": ["orders"],
+        "user_query": "총 매출은?",
+    }
+    result = quality_agent.run(state)
+    assert result["stop_reason"] == "quality_warning"
+    assert result["escalation_question"] == "계속 진행? (y/n)"
