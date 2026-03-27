@@ -12,7 +12,7 @@ LLM이 의도 파악에 사용되지만 그 결과가 실행 흐름에 반영되
 
 quada의 실행 흐름에는 세 가지 이유로 LangGraph가 적합하다:
 
-1. **사이클 존재**: `term_not_found` → escalate → semantic_query_node 재시도 흐름이 사이클을 형성
+1. **사이클 존재**: `term_not_found` / `sql_error` → escalate → semantic_query_node 재시도 흐름이 사이클을 형성
 2. **Human-in-the-loop**: `escalate_node`에서 사용자 입력을 기다려야 하며, LangGraph의 `interrupt()`가 이를 처리
 3. **State 영속성**: `interrupt()` pause 동안 State를 Checkpointer가 보존, `Command(resume=...)` 으로 재개
 
@@ -36,8 +36,8 @@ semantic_query_node ──sql_generated──→ quality_node ──quality_pass
         │                             escalate_node ←───────────────────────────
         │                          (interrupt() — 사용자 입력 대기)
         │                                    │
-        │              term_not_found ───────┤─── quality_warning+Y → execute_approved → execute_node
-        └──── term_clarified ────────────────┘─── quality_warning+N / sql_error → escalation_done → END
+        │    term_not_found / sql_error ─────┤─── quality_warning+Y → execute_approved → execute_node
+        └──── term_clarified / sql_retry ────┘─── quality_warning+N → escalation_done → END
 ```
 
 ### 노드 구성
@@ -75,7 +75,7 @@ class QuadaState(TypedDict):
 |---|---|---|
 | semantic_query | `user_query`, `user_clarification` | `sql`, `tables_used`, `resolved_terms`, `stop_reason` |
 | quality | `sql`, `tables_used` | `quality_results`, `escalation_question`, `stop_reason` |
-| execute | `sql` | `query_results`, `stop_reason` |
+| execute | `sql` | `query_results`, `error`, `stop_reason` |
 | interpret | `query_results`, `quality_results`, `user_query` | `stop_reason` |
 | escalate | `stop_reason`, `escalation_question` | `user_clarification`, `stop_reason` |
 
@@ -102,7 +102,8 @@ def quality_node(state: QuadaState):
 | `quality_passed` | `execute_node` | 품질 통과 |
 | `quality_warning` | `escalate_node` | 품질 경고 → 사용자 확인 요청 |
 | `execute_approved` | `execute_node` | 사용자가 품질 경고 수락 |
-| `sql_error` | `escalate_node` | SQL 실행 오류 |
+| `sql_error` | `escalate_node` | SQL 실행 오류 → 사용자에게 에러 안내 후 재시도 |
+| `sql_retry` | `semantic_query_node` | SQL 에러 컨텍스트 포함해 재생성 (사이클) |
 | `executed` | `interpret_node` | SQL 실행 완료 |
 | `done` | `END` | 해석 완료 |
 | `escalation_done` | `END` | 사용자 거부 또는 복구 불가 |
@@ -123,7 +124,8 @@ def escalate_node(state: QuadaState):
                 return {"stop_reason": "execute_approved"}
             return {"stop_reason": "escalation_done"}
         case "sql_error":
-            return {"stop_reason": "escalation_done"}
+            # 에러 내용을 user_clarification에 담아 semantic_query_node가 참고하도록
+            return {"user_clarification": f"이전 SQL 실행 오류: {state['error']}", "stop_reason": "sql_retry"}
 ```
 
 CLI에서 재개:
@@ -351,7 +353,7 @@ CLI → core/orchestrator → nodes → agents → tools → semantic/quality/db
 | 에러 | stop_reason | 처리 |
 |---|---|---|
 | 시맨틱 용어 미매칭 | `term_not_found` | escalate → 사용자 정의 입력 → semantic_query_node 재시도 |
-| SQL 실행 오류 | `sql_error` | escalate → 사용자에게 오류 안내 → END |
+| SQL 실행 오류 | `sql_error` | escalate → 에러 컨텍스트 포함 → semantic_query_node 재시도 |
 | 품질 경고 | `quality_warning` | escalate → 영향도 + 사용자 확인 → Y: execute / N: END |
 
 ## Testing Strategy
