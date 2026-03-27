@@ -19,6 +19,7 @@ from quada.core.config import load_config
 from quada.db.connector import create_engine_from_config
 from quada.db.executor import SQLExecutor
 from quada.llm.client import LLMClient
+from quada.semantic.index import MetadataIndex
 from quada.semantic.loader import SemanticLoader
 from quada.semantic.matcher import SemanticMatcher
 from quada.agents.semantic_query import SemanticQueryAgent
@@ -123,6 +124,34 @@ def validate(
     console.print(f"  Glossary terms: {len(ctx.glossary)}")
     console.print(f"  Quality rules: {len(ctx.quality.rules)}")
     console.print("[green]✓ Semantic layer is valid[/green]")
+
+
+@app.command(name="index")
+def index_build(
+    path: Path = typer.Option(".", help="Project directory"),
+):
+    """Build metadata index from semantic layer YAML files."""
+    load_dotenv(Path(path) / ".env")
+    config_path = Path(path) / "quada.yaml"
+    if not config_path.exists():
+        print_error(f"Config not found: {config_path}. Run 'quada init' first.")
+        raise typer.Exit(1)
+
+    loader = SemanticLoader(
+        models_dir=Path(path) / "models",
+        metrics_dir=Path(path) / "metrics",
+        glossary_dir=Path(path) / "glossary",
+        quality_dir=Path(path) / "quality",
+    )
+    ctx = loader.load_all()
+    index = MetadataIndex.build(ctx)
+    quada_dir = Path(path) / ".quada"
+    index.save(quada_dir)
+
+    console.print(f"[green]✓ metadata_index.json saved to {quada_dir}[/green]")
+    console.print(f"  Entities: {len(index.data['entities'])}")
+    console.print(f"  Metrics:  {len(index.data['metrics'])}")
+    console.print(f"  Glossary: {len(index.data['glossary'])}")
 
 
 @app.command()
