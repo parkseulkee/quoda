@@ -1,0 +1,25 @@
+database:
+  type: postgresql
+  host: localhost
+  port: 5432
+  name: testdb
+  user: testuser
+  password: testpass
+
+semantic_layer:
+  source: local
+
+llm:
+  orchestrator:
+    provider: anthropic
+    model: claude-opus-4-6
+  agents:
+    semantic_query:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+    quality:
+      provider: openai
+      model: gpt-4o-mini
+    interpret:
+      provider: anthropic
+      model: claude-sonnet-4-6
