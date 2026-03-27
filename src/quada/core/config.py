@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 
 
 def _expand_env_vars(value: str) -> str:
