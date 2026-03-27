@@ -74,7 +74,18 @@ def progress_callback(step: str, data: dict) -> None:
         console.print("[bold cyan]4/5[/bold cyan] [dim]Executing SQL...[/dim]")
 
     elif step == "execute_done":
-        console.print(f"     [green]{data.get('row_count', 0)} rows returned[/green]")
+        row_count = data.get("row_count", 0)
+        rows = data.get("rows", [])
+        console.print(f"     [green]{row_count} rows returned[/green]")
+        if rows:
+            table = Table(show_header=True, header_style="bold", border_style="dim")
+            for col in rows[0]:
+                table.add_column(col)
+            for row in rows[:20]:
+                table.add_row(*[str(v) for v in row.values()])
+            if row_count > 20:
+                table.add_row(*["..." for _ in rows[0]])
+            console.print(table)
 
     elif step == "interpret_start":
         console.print("[bold cyan]5/5[/bold cyan] [dim]Interpreting results...[/dim]")

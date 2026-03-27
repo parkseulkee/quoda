@@ -115,7 +115,10 @@ class Orchestrator:
         # Step 4: Execute SQL
         self._emit(on_progress, "execute_start", {"sql": sql_result.sql})
         query_results = self.executor.execute(sql_result.sql)
-        self._emit(on_progress, "execute_done", {"row_count": len(query_results)})
+        self._emit(on_progress, "execute_done", {
+            "row_count": len(query_results),
+            "rows": query_results[:50],
+        })
 
         # Step 5: Interpret results
         self._emit(on_progress, "interpret_start", {})
