@@ -136,103 +136,129 @@ graph.invoke(
 
 ---
 
-## Semantic Query Agent — 3-Tier Selective Loading
+## Semantic Query Agent — Index-First Selective Loading
 
-YAML 파일 수가 늘어도 LLM에 전달하는 컨텍스트를 최소화하기 위해 3단계 선택적 로드를 사용한다.
-이는 토큰 소비를 최대 80% 줄이고 hallucination을 방지하는 핵심 설계다.
+YAML 전체를 LLM에 주는 대신, 경량 인덱스를 먼저 보여주고 LLM이 필요한 항목만 선택해 상세 내용을 조회하는 방식.
+핵심은 **metadata_index를 얼마나 잘 만드느냐**에 있다.
 
-### Tier 1: Metadata Index (Build Time)
+### metadata_index.json
 
-앱 시작 시 모든 YAML을 파싱하여 경량 인덱스를 메모리에 구축한다.
-인덱스는 이름/별칭/설명 한 줄만 포함 — 상세 정의는 포함하지 않는다.
+`quada index build` 명령으로 생성되며 `.quada/metadata_index.json`에 저장된다 (gitignore 대상).
+모든 YAML을 파싱하여 LLM이 "어떤 항목을 상세 조회할지" 판단하기에 충분한 정보만 담는다.
 
-```python
-metadata_index = {
-    "entities": [
-        {"name": "customer", "table": "customers", "aliases": ["고객"], "description": "서비스에 가입한 고객"},
-        {"name": "order",    "table": "orders",    "aliases": ["주문"], "description": "고객의 구매 주문"},
-    ],
-    "metrics": [
-        {"name": "revenue", "aliases": ["매출", "수익", "매출액"], "description": "완료된 주문의 총 매출액"},
-        {"name": "dau",     "aliases": ["일간 활성 사용자"],        "description": "하루 동안 앱을 사용한 유저 수"},
-    ],
-    "glossary": [
-        {"term": "이탈 고객", "aliases": ["churned customer", "비활성 고객"], "description": "최근 90일 구매 없는 고객"},
-        {"term": "신규 고객", "aliases": ["new customer"],                    "description": "최근 30일 이내 가입한 고객"},
-    ]
+```json
+{
+  "entities": [
+    {
+      "name": "customer",
+      "table": "customers",
+      "aliases": ["고객"],
+      "description": "서비스에 가입한 고객",
+      "key_columns": ["id", "email", "last_purchase_date", "segment"]
+    },
+    {
+      "name": "order",
+      "table": "orders",
+      "aliases": ["주문"],
+      "description": "고객의 구매 주문",
+      "key_columns": ["id", "customer_id", "amount", "status", "order_date"]
+    }
+  ],
+  "metrics": [
+    {
+      "name": "revenue",
+      "aliases": ["매출", "수익", "매출액"],
+      "description": "완료된 주문의 총 매출액",
+      "entities": ["order"]
+    },
+    {
+      "name": "dau",
+      "aliases": ["일간 활성 사용자", "DAU"],
+      "description": "하루 동안 앱을 사용한 유저 수",
+      "entities": ["customer"]
+    }
+  ],
+  "glossary": [
+    {
+      "term": "이탈 고객",
+      "aliases": ["churned customer", "비활성 고객", "이탈자"],
+      "description": "최근 90일간 구매 이력이 없는 고객",
+      "entity": "customer"
+    },
+    {
+      "term": "신규 고객",
+      "aliases": ["new customer", "신규 가입자"],
+      "description": "최근 30일 이내 가입한 고객",
+      "entity": "customer"
+    }
+  ]
 }
 ```
 
-### Tier 2: Tool-Based Retrieval (Runtime)
+**인덱스 설계 원칙:**
+- `aliases`: LLM이 사용자 용어와 매핑하는 핵심 필드 — 충분히 넣을수록 좋다
+- `key_columns`: 컬럼명만 (타입/설명 없음) — "이 테이블에 내가 필요한 컬럼이 있는가?" 판단용
+- `entities`: metric이 어떤 테이블 기반인지 — 조인 구조 추론용
+- `entity`: glossary 용어가 어느 테이블에 적용되는지
 
-LLM이 직접 도구를 호출해 필요한 정의만 가져온다. 전체 YAML을 보지 않는다.
+### Runtime 동작
 
-**도구 목록:**
+`semantic_query_node` 실행 시:
+1. `.quada/metadata_index.json`을 로드하여 **초기 messages에 포함** — LLM이 전체 인덱스를 본다
+2. LLM이 인덱스를 읽고 "어떤 entity/metric/glossary 항목을 상세 조회할지" 판단
+3. LLM이 `get_*_definition` 도구를 호출해 필요한 항목의 전체 YAML만 읽어옴
+4. 충분한 컨텍스트가 모이면 `generate_sql` 호출
 
-| Tool | 입력 | 반환 | 설명 |
-|---|---|---|---|
-| `search_metadata_index(query)` | 자연어 쿼리 | 후보 목록 (name + description) | 인덱스에서 관련 항목 검색, exact → fuzzy 순서 |
-| `get_entity_definition(name)` | entity 이름 | 전체 컬럼, 관계, PK | 특정 entity YAML 상세 조회 |
-| `get_metric_definition(name)` | metric 이름 | expression, filter, dimensions | 특정 metric YAML 상세 조회 |
-| `get_glossary_term(term)` | glossary 용어 | sql_condition, entity, aliases | 특정 glossary 항목 조회 |
-| `generate_sql(context)` | resolved context | SQL 문자열 | 조회된 정의들로 SQL 생성 | `sql_generated` |
-| `report_term_not_found(term)` | 미매칭 용어 | - | 에스컬레이션 요청 | `term_not_found` |
+```python
+def semantic_query_node(state: QuadaState):
+    index = load_metadata_index()  # .quada/metadata_index.json
+    clarification = state.get("user_clarification")
 
-**`search_metadata_index` 매칭 전략:**
-1. **Exact match**: 인덱스의 name + aliases에서 완전 일치 → 즉시 반환, LLM 비용 없음
-2. **Fuzzy match**: `rapidfuzz` 기반 문자열 유사도 → top-3 후보 반환, LLM이 선택
-3. **No match**: 후보 없으면 `report_term_not_found()` 호출
+    messages = [
+        SystemMessage(SEMANTIC_SYSTEM_PROMPT),
+        HumanMessage(
+            f"Query: {state['user_query']}\n"
+            f"Metadata Index:\n{json.dumps(index, ensure_ascii=False)}"
+            + (f"\nUser clarification: {clarification}" if clarification else "")
+        )
+    ]
+    # tool call loop — LLM이 get_*_definition 호출 후 generate_sql
+```
 
-### Tier 2 ReAct 루프 예시
+### ReAct 루프 예시
 
 사용자 쿼리: `"지난달 이탈 고객의 매출 보여줘"`
 
 ```
-1. LLM → search_metadata_index("이탈 고객 매출")
-   ← [{"term": "이탈 고객", ...}, {"name": "revenue", ...}, {"name": "order", ...}]
+[초기 컨텍스트] metadata_index.json 전체
 
-2. LLM → get_glossary_term("이탈 고객")
+LLM 판단: "이탈 고객" → glossary 항목, "매출" → revenue metric, customer/order entity 필요
+
+1. LLM → get_glossary_term("이탈 고객")
    ← {sql_condition: "customer.last_purchase_date < NOW() - INTERVAL '90 days'", entity: "customer"}
 
-3. LLM → get_metric_definition("revenue")
+2. LLM → get_metric_definition("revenue")
    ← {expression: "orders.amount", filter: "orders.status = 'completed'", entities: ["order"]}
 
-4. LLM → get_entity_definition("order")
+3. LLM → get_entity_definition("order")
    ← {table: "orders", columns: [...], relationships: [...]}
 
-5. LLM → generate_sql({glossary: {...}, metric: {...}, entity: {...}, time_filter: "last month"})
+4. LLM → generate_sql(...)
    ← "SELECT SUM(o.amount) FROM orders o JOIN customers c ..."
    → stop_reason = "sql_generated"
 ```
 
 LLM은 전체 YAML 대신 이 쿼리에 필요한 3개 항목의 상세 정보만 보고 SQL을 생성한다.
 
-### Tier 3: Semantic Search (선택적, 향후 확장)
+### 도구 목록
 
-Tier 2의 fuzzy match로 커버되지 않는 의미적 유사어 처리를 위한 확장.
-MVP에서는 포함하지 않으며, 아래 조건 충족 시 도입을 검토한다:
-- glossary/metric 항목이 200개 초과
-- rapidfuzz 기반 fuzzy match 정확도가 충분하지 않은 케이스가 반복 발생
-
-도입 시: YAML description을 embedding하여 로컬 벡터 DB(Chroma)에 저장,
-`search_metadata_index`가 string match 실패 시 vector search로 fallback.
-
-### `user_clarification` 반영
-
-escalate → `term_clarified`로 재진입 시, semantic_query_node는 `user_clarification`을 로컬 messages에 포함:
-
-```python
-def semantic_query_node(state: QuadaState):
-    clarification = state.get("user_clarification")
-    messages = [
-        SystemMessage(SEMANTIC_SYSTEM_PROMPT),
-        HumanMessage(
-            f"Query: {state['user_query']}"
-            + (f"\nUser clarification: {clarification}" if clarification else "")
-        )
-    ]
-    # tool call loop 실행
-```
+| Tool | 설명 | stop_reason |
+|---|---|---|
+| `get_entity_definition(name)` | entity 전체 정의 (컬럼, 관계, PK) | - |
+| `get_metric_definition(name)` | metric 전체 정의 (expression, filter, dimensions) | - |
+| `get_glossary_term(term)` | glossary 전체 정의 (sql_condition, aliases) | - |
+| `generate_sql(context)` | 조회된 정의들로 SQL 생성 | `sql_generated` |
+| `report_term_not_found(term)` | 매칭 불가 시 에스컬레이션 | `term_not_found` |
 
 ---
 
@@ -302,10 +328,10 @@ src/quada/
 │   ├── interpret.py        → interpret_node()
 │   └── escalate.py         → escalate_node() — interrupt() 포함
 ├── semantic/
-│   ├── index.py            → 신규: MetadataIndex 클래스 (경량 인덱스 빌드/검색)
-│   ├── loader.py           → 유지: YAML 파싱, 전체 정의 로드
+│   ├── index.py            → 신규: YAML → metadata_index.json 빌드 / .quada/에 저장 및 로드
+│   ├── loader.py           → 유지: YAML 파싱, 전체 정의 로드 (get_*_definition 도구가 사용)
 │   ├── models.py           → 유지: Pydantic 모델
-│   ├── matcher.py          → 교체: rapidfuzz 기반 fuzzy match (LLM 호출 제거)
+│   ├── matcher.py          → 제거: index-first 방식으로 대체
 │   └── dbt_adapter.py      → 유지
 └── ... (나머지 유지)
 ```
@@ -323,10 +349,10 @@ CLI → core/orchestrator → nodes → agents → tools → semantic/quality/db
 | Agent 패턴 | 1회 LLM 호출 | Tool call loop (ReAct) |
 | Routing | 하드코딩 | stop_reason 기반 conditional_edge |
 | Human-in-the-loop | 없음 | LangGraph interrupt() + Checkpointer |
-| Metadata 검색 | 전체 YAML → LLM | 경량 인덱스 + tool-based retrieval |
-| Fuzzy match | LLM에 전체 glossary 전달 | rapidfuzz (LLM 비용 없음) |
+| Metadata 전달 | 전체 YAML → LLM | index 먼저 → LLM이 선택 → 상세 조회 |
+| Index 관리 | 없음 | `.quada/metadata_index.json` (`quada index build`로 생성) |
 
-추가 의존성: `langgraph>=0.2`, `rapidfuzz`
+추가 의존성: `langgraph>=0.2`
 
 ## Error Handling
 
@@ -354,13 +380,12 @@ CLI → core/orchestrator → nodes → agents → tools → semantic/quality/db
 - 5개 노드, 로컬 messages (State isolation)
 - stop_reason 기반 routing (사이클 포함)
 - interrupt() 기반 human-in-the-loop
-- Semantic Query Agent 3-tier 선택적 로드
-  - Tier 1: 경량 MetadataIndex (빌드 타임)
-  - Tier 2: tool-based retrieval (rapidfuzz fuzzy match)
+- Semantic Query Agent index-first 선택적 로드
+- `quada index build` CLI 명령 추가
+- `.quada/metadata_index.json` 생성 및 로드
 - QuadaState 정의
 
 ### Out of Scope (향후)
-- Tier 3: Vector DB 기반 시맨틱 검색
-- 기존 semantic/quality/db/llm 레이어 내부 로직 변경 (index.py, matcher.py 교체 제외)
+- Vector DB 기반 시맨틱 검색
+- 기존 semantic/quality/db/llm 레이어 내부 로직 변경 (semantic/index.py 신규 제외)
 - dbt 연동, 클라우드 DB 지원
-- 새로운 CLI 명령어 추가
