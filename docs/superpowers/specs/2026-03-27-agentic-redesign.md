@@ -22,7 +22,7 @@ LangGraph StateGraph를 사용한 Supervisor 패턴:
 - Routing은 LLM이 아닌 `conditional_edge` 코드로 구현 — `stop_reason`으로 다음 노드 결정
 - 각 노드는 **로컬 messages**를 구성하여 자체 LLM + tool call loop 실행 — 노드 간 컨텍스트 오염 없음
 - 사용자 입력이 필요한 시점에 `interrupt()`로 그래프 pause → 사용자 응답 후 재개
-- Semantic Query Agent는 전체 YAML 대신 3-tier 선택적 로드(Selective Loading)로 동작
+- Semantic Query Agent는 전체 YAML 대신 metadata_index를 먼저 보고 LLM이 필요한 항목만 상세 조회
 
 ## Architecture
 
@@ -268,7 +268,6 @@ LLM은 전체 YAML 대신 이 쿼리에 필요한 3개 항목의 상세 정보�
 
 | Tool | stop_reason |
 |---|---|
-| `search_metadata_index(query)` | - |
 | `get_entity_definition(name)` | - |
 | `get_metric_definition(name)` | - |
 | `get_glossary_term(term)` | - |
@@ -314,11 +313,11 @@ src/quada/
 │   └── config.py           → 유지
 ├── agents/
 │   ├── base.py             → 교체: tool call loop 지원
-│   ├── semantic_query.py   → 교체: 3-tier 선택적 로드 + tool call loop
+│   ├── semantic_query.py   → 교체: index-first 로드 + tool call loop
 │   ├── quality.py          → 교체: fine-grained tools + tool call loop
 │   └── interpret.py        → 교체: fine-grained tools + tool call loop
 ├── tools/                  → 신규: 각 Agent의 tool 함수 (순수 함수)
-│   ├── semantic_tools.py   → search_metadata_index, get_*_definition, generate_sql
+│   ├── semantic_tools.py   → get_*_definition, generate_sql, report_term_not_found
 │   ├── quality_tools.py    → run_*_check, analyze_impact
 │   └── interpret_tools.py  → summarize_results, render_chart
 ├── nodes/                  → 신규: LangGraph 노드 함수
@@ -367,7 +366,7 @@ CLI → core/orchestrator → nodes → agents → tools → semantic/quality/db
 | Layer | 대상 | 방법 |
 |---|---|---|
 | Unit | `tools/` 함수 | 순수 함수, mock 없이 테스트 가능 |
-| Unit | `semantic/index.py` 검색 로직 | fixture YAML로 검증 |
+| Unit | `semantic/index.py` 인덱스 빌드 로직 | fixture YAML로 검증 |
 | Unit | Agent tool call loop | LLM mock |
 | Integration | 노드 간 State 전달 + 사이클 | LangGraph test utilities |
 | Integration | interrupt() / resume | LangGraph `MemorySaver` + `Command(resume=...)` |
