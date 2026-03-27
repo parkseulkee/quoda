@@ -4,7 +4,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from quada.agents.interpret import InterpretAgent, InterpretResult
+from quada.agents.interpret import InterpretAgent
 from quada.agents.quality import QualityAgent
 from quada.agents.semantic_query import SemanticQueryAgent
 from quada.db.executor import SQLExecutor
@@ -22,7 +22,7 @@ class OrchestratorResult:
     query_results: list[dict]
     quality_check: dict | None
     quality_analysis: dict | None
-    interpret_result: InterpretResult
+    interpret_result: dict
     sql_generation: dict
 
 

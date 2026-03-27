@@ -1,5 +1,6 @@
+from types import SimpleNamespace
+
 from quada.cli.display import format_quality_warning, format_interpret_result
-from quada.agents.interpret import InterpretResult
 
 
 def test_format_quality_warning():
@@ -16,7 +17,7 @@ def test_format_quality_warning():
 
 
 def test_format_interpret_result():
-    result = InterpretResult(
+    result = SimpleNamespace(
         summary="지난달 매출은 12,450,000원입니다.",
         insights=["전체 매출의 12.7%"],
         quality_note="약 3% 오차 가능",
@@ -28,7 +29,7 @@ def test_format_interpret_result():
 
 
 def test_format_interpret_result_no_quality_note():
-    result = InterpretResult(
+    result = SimpleNamespace(
         summary="매출은 100,000,000원입니다.",
         insights=["증가 추세"],
         quality_note=None,

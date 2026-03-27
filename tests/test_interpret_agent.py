@@ -1,53 +1,65 @@
+"""Tests for InterpretAgent — tool call loop based."""
 import json
 from unittest.mock import MagicMock
 
-import pytest
-
-from quada.agents.interpret import InterpretAgent, InterpretResult
-
-
-@pytest.fixture
-def interpret_agent():
-    llm_client = MagicMock()
-    llm_client.completion.return_value = json.dumps({
-        "summary": "지난달 이탈 고객 매출은 12,450,000원입니다.",
-        "insights": ["전체 매출의 12.7%를 차지합니다."],
-        "quality_note": "status NULL 3.2%로 실제 매출은 약 3% 높을 수 있습니다.",
-        "follow_up_questions": ["이탈 고객의 주요 이탈 시점은?"],
-    })
-    return InterpretAgent(llm_client=llm_client)
+from quada.agents.interpret import InterpretAgent
+from quada.core.state import QuadaState
+from quada.tools.base import TerminalResult
 
 
-def test_interpret_results(interpret_agent):
-    quality_analysis = {
-        "overall_status": "warn",
-        "issues": [{"rule": "null_check", "status": "warn", "impact": "NULL 3.2%", "estimated_error": "~3%"}],
-        "recommendation": "매출이 약 3% 과소 집계될 수 있습니다.",
+def _make_state(**kwargs) -> QuadaState:
+    defaults: QuadaState = {
+        "user_query": "이번달 매출",
+        "sql": "SELECT SUM(amount) FROM orders",
+        "tables_used": ["orders"],
+        "resolved_terms": {},
+        "quality_results": [],
+        "query_results": [{"revenue": 100000000}],
+        "error": None,
+        "escalation_question": None,
+        "user_clarification": None,
+        "stop_reason": None,
     }
-    result = interpret_agent.interpret(
-        query_results=[{"revenue": 12450000}],
-        sql="SELECT SUM(amount) as revenue FROM orders",
-        user_query="이탈 고객의 매출",
-        quality_analysis=quality_analysis,
-    )
-    assert isinstance(result, InterpretResult)
-    assert "12,450,000" in result.summary
-    assert len(result.insights) > 0
-    assert result.quality_note is not None
-    assert len(result.follow_up_questions) > 0
+    defaults.update(kwargs)
+    return defaults
 
 
-def test_interpret_without_quality_issues(interpret_agent):
-    interpret_agent.llm_client.completion.return_value = json.dumps({
-        "summary": "매출은 100,000,000원입니다.",
-        "insights": ["전월 대비 증가"],
-        "quality_note": None,
-        "follow_up_questions": ["월별 추이는?"],
-    })
-    result = interpret_agent.interpret(
-        query_results=[{"revenue": 100000000}],
-        sql="SELECT SUM(amount) as revenue FROM orders",
-        user_query="이번달 매출",
-        quality_analysis=None,
+def test_run_returns_done():
+    mock_client = MagicMock()
+    mock_client.completion_with_tools.return_value = (
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "tc1", "type": "function", "function": {
+                "name": "finalize_interpretation",
+                "arguments": json.dumps({
+                    "summary": "매출은 100,000,000원입니다.",
+                    "insights": ["전월 대비 증가"],
+                    "follow_up_questions": ["월별 추이는?"],
+                }),
+            }}
+        ]},
+        [{"name": "finalize_interpretation", "args": {
+            "summary": "매출은 100,000,000원입니다.",
+            "insights": ["전월 대비 증가"],
+            "follow_up_questions": ["월별 추이는?"],
+        }, "id": "tc1"}],
     )
-    assert result.quality_note is None
+
+    agent = InterpretAgent(llm_client=mock_client)
+    result = agent.run(_make_state())
+
+    assert result["stop_reason"] == "done"
+
+
+def test_run_includes_quality_context():
+    """quality_results에 실패한 규칙이 있으면 LLM 메시지에 포함된다."""
+    mock_client = MagicMock()
+    mock_client.completion_with_tools.return_value = (
+        {"role": "assistant", "content": "done"}, []
+    )
+
+    agent = InterpretAgent(llm_client=mock_client)
+    agent.run(_make_state(quality_results=[{"status": "warn", "rule_name": "null_check", "message": "NULL 3.2%", "value": 0.032}]))
+
+    call_kwargs = mock_client.completion_with_tools.call_args.kwargs
+    user_msg = call_kwargs["messages"][1]["content"]
+    assert "Quality warnings" in user_msg

@@ -6,9 +6,6 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from quada.agents.interpret import InterpretResult
-
-
 console = Console()
 
 
@@ -103,7 +100,7 @@ def format_quality_warning(analysis: dict) -> str:
     return "\n".join(lines)
 
 
-def format_interpret_result(result: InterpretResult) -> str:
+def format_interpret_result(result) -> str:
     """Format interpretation result as a readable string."""
     lines = []
     lines.append(f"📊 {result.summary}")
@@ -129,7 +126,7 @@ def print_quality_warning(analysis: dict) -> None:
     console.print(Panel(text, title="Data Quality", border_style="yellow"))
 
 
-def print_interpret_result(result: InterpretResult) -> None:
+def print_interpret_result(result) -> None:
     """Print interpretation result to console."""
     text = format_interpret_result(result)
     console.print(Panel(text, title="Result", border_style="green"))

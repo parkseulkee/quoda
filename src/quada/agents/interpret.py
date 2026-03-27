@@ -1,19 +1,53 @@
-"""Interpret Agent: summarizes results, provides insights, generates charts."""
-
-import json
-from dataclasses import dataclass
+"""Interpret Agent: summarizes results and generates insights via tool call loop."""
 
 from quada.agents.base import BaseAgent
+from quada.core.state import QuadaState
 from quada.llm.client import LLMClient
 from quada.llm.prompts import INTERPRET_AGENT_SYSTEM_PROMPT
+from quada.tools.interpret_tools import finalize_interpretation, render_chart
 
-
-@dataclass
-class InterpretResult:
-    summary: str
-    insights: list[str]
-    quality_note: str | None
-    follow_up_questions: list[str]
+_TOOL_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "render_chart",
+            "description": "Render a CLI chart from query results.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "rows": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Query result rows",
+                    },
+                    "chart_type": {
+                        "type": "string",
+                        "enum": ["bar", "line"],
+                        "description": "Chart type",
+                    },
+                },
+                "required": ["rows"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "finalize_interpretation",
+            "description": "Call this when you have completed the interpretation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string"},
+                    "insights": {"type": "array", "items": {"type": "string"}},
+                    "follow_up_questions": {"type": "array", "items": {"type": "string"}},
+                    "quality_note": {"type": "string"},
+                },
+                "required": ["summary", "insights", "follow_up_questions"],
+            },
+        },
+    },
+]
 
 
 class InterpretAgent(BaseAgent):
@@ -26,38 +60,37 @@ class InterpretAgent(BaseAgent):
             system_prompt=INTERPRET_AGENT_SYSTEM_PROMPT,
         )
 
-    def interpret(
-        self,
-        query_results: list[dict],
-        sql: str,
-        user_query: str,
-        quality_analysis: dict | None = None,
-    ) -> InterpretResult:
-        """Interpret query results with quality context."""
-        context = {
-            "user_query": user_query,
-            "sql": sql,
-            "results": query_results[:50],  # Limit to avoid token overflow
-            "row_count": len(query_results),
+    def run(self, state: QuadaState) -> dict:
+        """Run interpretation tool loop. Returns state updates dict."""
+        quality_context = ""
+        if state.get("quality_results"):
+            failed = [r for r in state["quality_results"] if r.get("status") != "pass"]
+            if failed:
+                quality_context = f"\nQuality warnings: {failed}"
+
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {
+                "role": "user",
+                "content": (
+                    f"User query: {state['user_query']}\n"
+                    f"SQL executed: {state.get('sql', '')}\n"
+                    f"Results ({len(state['query_results'])} rows): "
+                    f"{state['query_results'][:50]}"
+                    f"{quality_context}"
+                ),
+            },
+        ]
+
+        tool_executors = {
+            "render_chart": render_chart,
+            "finalize_interpretation": finalize_interpretation,
         }
-        if quality_analysis:
-            context["quality"] = quality_analysis
 
-        response = self.call_llm("Interpret these query results.", context=context)
-
-        try:
-            data = json.loads(response)
-        except json.JSONDecodeError:
-            return InterpretResult(
-                summary=response,
-                insights=[],
-                quality_note=None,
-                follow_up_questions=[],
-            )
-
-        return InterpretResult(
-            summary=data.get("summary", ""),
-            insights=data.get("insights", []),
-            quality_note=data.get("quality_note"),
-            follow_up_questions=data.get("follow_up_questions", []),
+        stop_reason, _ = self.run_tool_loop(
+            messages=messages,
+            tool_definitions=_TOOL_DEFINITIONS,
+            tool_executors=tool_executors,
         )
+
+        return {"stop_reason": stop_reason or "done"}
