@@ -39,6 +39,9 @@ TEMPLATE_QUADA_YAML = """database:
 semantic_layer:
   source: local
 
+# API 키는 환경변수로 설정:
+#   anthropic → export ANTHROPIC_API_KEY=sk-ant-...
+#   openai    → export OPENAI_API_KEY=sk-...
 llm:
   orchestrator:
     provider: anthropic
