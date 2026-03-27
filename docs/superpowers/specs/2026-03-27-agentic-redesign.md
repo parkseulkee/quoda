@@ -384,7 +384,6 @@ CLI → core/orchestrator → nodes → agents → tools → semantic/quality/db
 - `.quada/metadata_index.json` 생성 및 로드
 - QuadaState 정의
 
-### Out of Scope (향후)
-- Vector DB 기반 시맨틱 검색
+### Out of Scope
 - 기존 semantic/quality/db/llm 레이어 내부 로직 변경 (semantic/index.py 신규 제외)
 - dbt 연동, 클라우드 DB 지원
