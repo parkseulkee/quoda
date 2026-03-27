@@ -1,0 +1,24 @@
+glossary:
+  - term: "이탈 고객"
+    definition: "최근 90일간 구매 이력이 없는 고객"
+    sql_condition: "customers.last_purchase_date < datetime('now', '-90 days')"
+    entity: customer
+    aliases:
+      - "churned customer"
+      - "이탈자"
+      - "비활성 고객"
+
+  - term: "신규 고객"
+    definition: "최근 30일 이내 가입한 고객"
+    sql_condition: "customers.created_at >= datetime('now', '-30 days')"
+    entity: customer
+    aliases:
+      - "new customer"
+      - "신규 가입자"
+
+  - term: "활성 고객"
+    definition: "최근 30일 이내 구매한 고객"
+    sql_condition: "customers.last_purchase_date >= datetime('now', '-30 days')"
+    entity: customer
+    aliases:
+      - "active customer"

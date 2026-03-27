@@ -32,11 +32,11 @@ def _expand_env_recursive(data: dict | list | str) -> dict | list | str:
 
 class DatabaseConfig(BaseModel):
     type: str
-    host: str
+    host: str = ""
     port: int = 5432
     name: str
-    user: str
-    password: str
+    user: str = ""
+    password: str = ""
 
 
 class LLMModelConfig(BaseModel):

@@ -7,6 +7,8 @@ from quada.core.config import DatabaseConfig
 
 def get_connection_url(config: DatabaseConfig) -> str:
     """Build a SQLAlchemy connection URL from database config."""
+    if config.type == "sqlite":
+        return f"sqlite:///{config.name}"
     return f"{config.type}://{config.user}:{config.password}@{config.host}:{config.port}/{config.name}"
 
 

@@ -45,6 +45,8 @@ class FreshnessRule:
         max_val = row.get(key)
         if max_val is None:
             return RuleResult(self.name, "warn", f"No data found in {self.table}.{self.column}")
+        if isinstance(max_val, str):
+            max_val = datetime.fromisoformat(max_val)
         if isinstance(max_val, datetime) and max_val.tzinfo is None:
             max_val = max_val.replace(tzinfo=timezone.utc)
         age = datetime.now(timezone.utc) - max_val
@@ -61,7 +63,10 @@ class NullRatioRule:
         self.threshold = threshold
 
     def sql_fragment(self) -> str:
-        return f"COUNT(*) FILTER (WHERE {self.column} IS NULL)::float / NULLIF(COUNT(*), 0) AS null_ratio_{self.column}"
+        return (
+            f"CAST(SUM(CASE WHEN {self.column} IS NULL THEN 1 ELSE 0 END) AS FLOAT) "
+            f"/ MAX(COUNT(*), 1) AS null_ratio_{self.column}"
+        )
 
     def evaluate(self, row: dict) -> RuleResult:
         key = f"null_ratio_{self.column}"
@@ -85,7 +90,7 @@ class ValueRangeRule:
 
     def sql_fragment(self) -> str:
         return (
-            f"COUNT(*) FILTER (WHERE {self.column} < {self.min_val} OR {self.column} > {self.max_val}) "
+            f"SUM(CASE WHEN {self.column} < {self.min_val} OR {self.column} > {self.max_val} THEN 1 ELSE 0 END) "
             f"AS out_of_range_{self.column}"
         )
 

@@ -1,0 +1,25 @@
+entity:
+  name: order
+  description: "고객 주문"
+  table: orders
+  columns:
+    - name: id
+      type: integer
+      primary_key: true
+    - name: customer_id
+      type: integer
+    - name: amount
+      type: float
+      description: "주문 금액 (원)"
+    - name: status
+      type: string
+      description: "주문 상태: completed, cancelled, pending, refunded"
+    - name: order_date
+      type: timestamp
+    - name: updated_at
+      type: timestamp
+  relationships:
+    - name: customer
+      type: many_to_one
+      entity: customer
+      join: "orders.customer_id = customers.id"
