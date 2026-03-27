@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 from rich.console import Console
 
 import quada
@@ -27,6 +28,7 @@ from quada.core.orchestrator import Orchestrator
 
 app = typer.Typer(name="quada", help="Semantic layer + data quality + natural language query agent")
 console = Console()
+load_dotenv()
 
 TEMPLATE_QUADA_YAML = """database:
   type: postgresql
@@ -130,6 +132,7 @@ def ask(
     show_sql: bool = typer.Option(False, "--show-sql", help="Show generated SQL"),
 ):
     """Ask a natural language question about your data."""
+    load_dotenv(Path(path) / ".env")
     config_path = Path(path) / "quada.yaml"
     try:
         config = load_config(config_path)
@@ -186,6 +189,7 @@ def check(
     path: Path = typer.Option(".", help="Project directory"),
 ):
     """Run data quality checks."""
+    load_dotenv(Path(path) / ".env")
     config_path = Path(path) / "quada.yaml"
     try:
         config = load_config(config_path)
