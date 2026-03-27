@@ -46,10 +46,17 @@ class LLMClient:
     ) -> tuple[dict, list[dict]]:
         """Call LLM with tool definitions.
 
+        Args:
+            role: Agent role for model routing.
+            messages: Conversation history.
+            tools: OpenAI-format tool definitions. Empty list skips the tools parameter entirely.
+
         Returns:
             (message_dict, tool_calls)
             message_dict: {"role": "assistant", "content": ..., "tool_calls": [...]}
+                         tool_calls key only present when LLM called tools.
             tool_calls: [{"name": str, "args": dict, "id": str}, ...]
+                        Empty list when LLM called no tools.
         """
         model = self.get_model_string(role)
         kwargs: dict = {"model": model, "messages": messages}
@@ -60,26 +67,29 @@ class LLMClient:
         message = response.choices[0].message
 
         msg_dict: dict = {"role": "assistant", "content": message.content or ""}
+        tool_calls: list[dict] = []
+
         if message.tool_calls:
-            msg_dict["tool_calls"] = [
-                {
+            wire_tool_calls = []
+            for tc in message.tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"LLM returned malformed JSON in tool call '{tc.function.name}': "
+                        f"{tc.function.arguments!r}"
+                    ) from e
+
+                wire_tool_calls.append({
                     "id": tc.id,
                     "type": "function",
                     "function": {
                         "name": tc.function.name,
                         "arguments": tc.function.arguments,
                     },
-                }
-                for tc in message.tool_calls
-            ]
-
-        tool_calls = []
-        if message.tool_calls:
-            for tc in message.tool_calls:
-                tool_calls.append({
-                    "name": tc.function.name,
-                    "args": json.loads(tc.function.arguments),
-                    "id": tc.id,
                 })
+                tool_calls.append({"name": tc.function.name, "args": args, "id": tc.id})
+
+            msg_dict["tool_calls"] = wire_tool_calls
 
         return msg_dict, tool_calls
