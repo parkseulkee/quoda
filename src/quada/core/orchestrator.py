@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from quada.agents.interpret import InterpretAgent, InterpretResult
 from quada.agents.quality import QualityAgent, QualityAnalysis
-from quada.agents.semantic_query import SemanticQueryAgent, SQLGenerationResult
+from quada.agents.semantic_query import SemanticQueryAgent
 from quada.db.executor import SQLExecutor
 from quada.llm.client import LLMClient
 from quada.llm.prompts import ORCHESTRATOR_SYSTEM_PROMPT
@@ -24,7 +24,7 @@ class OrchestratorResult:
     quality_check: QualityCheckResult | None
     quality_analysis: QualityAnalysis | None
     interpret_result: InterpretResult
-    sql_generation: SQLGenerationResult
+    sql_generation: dict
 
 
 class Orchestrator:
