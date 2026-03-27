@@ -90,17 +90,3 @@ def build_graph(
 
     checkpointer = MemorySaver()
     return graph.compile(checkpointer=checkpointer)
-
-
-# ---------------------------------------------------------------------------
-# Compatibility stub — Task 12 will replace cli/app.py's Orchestrator usage.
-# Importing this name must not raise ImportError so test collection succeeds.
-# ---------------------------------------------------------------------------
-class Orchestrator:
-    """Deprecated stub. Use build_graph() instead. Removed in Task 12."""
-
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "Orchestrator has been replaced by build_graph(). "
-            "See quada.core.orchestrator.build_graph."
-        )

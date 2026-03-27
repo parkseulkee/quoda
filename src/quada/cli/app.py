@@ -5,12 +5,11 @@ from pathlib import Path
 
 import typer
 from dotenv import load_dotenv
+from langgraph.types import Command
 from rich.console import Console
 
 import quada
 from quada.cli.display import (
-    print_quality_warning,
-    print_interpret_result,
     print_sql,
     print_error,
     print_query_results,
@@ -192,6 +191,9 @@ def ask(
         project_dir=project_dir,
     )
 
+    if skip_quality:
+        console.print("[yellow]Note: --skip-quality is not yet implemented in the new pipeline.[/yellow]")
+
     initial_state: QuadaState = {
         "user_query": query,
         "sql": None,
@@ -218,7 +220,6 @@ def ask(
         question = current_values.get("escalation_question", "입력이 필요합니다.")
         console.print(f"\n[yellow]{question}[/yellow]")
         user_input = typer.prompt("")
-        from langgraph.types import Command
         graph.invoke(Command(resume=user_input), config=thread_config)
 
     # Get final state and display results

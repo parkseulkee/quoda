@@ -44,7 +44,8 @@ class BaseAgent:
             (stop_reason, state_updates)
             stop_reason is None if LLM stopped calling tools without a terminal tool.
         """
-        while True:
+        max_iterations = 20
+        for _ in range(max_iterations):
             msg_dict, tool_calls = self.llm_client.completion_with_tools(
                 role=self.role,
                 messages=messages,
@@ -78,3 +79,8 @@ class BaseAgent:
                     result_content = str(result)
 
                 messages.append({"role": "tool", "tool_call_id": tool_id, "content": result_content})
+
+        raise RuntimeError(
+            f"Tool call loop exceeded {max_iterations} iterations without a terminal tool call. "
+            "The agent may be stuck in a loop."
+        )
