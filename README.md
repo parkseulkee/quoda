@@ -1,336 +1,100 @@
-# quada
+# 📊 quada
+> **Natural language data queries, with quality you can trust.**
 
-> Natural language data queries, with quality you can trust.
-
----
-
-## Table of Contents
-
-- [Why quada?](#why-quada)
-- [How It Works](#how-it-works)
-- [Key Features](#key-features)
-- [Quick Start](#quick-start)
-- [CLI Reference](#cli-reference)
-- [Configuration](#configuration)
-- [Semantic Layer](#semantic-layer)
-- [Quality Rules](#quality-rules)
-- [Architecture](#architecture)
-- [Tutorial](#tutorial)
+quada는 "빠른 답변"과 "데이터 신뢰" 사이의 간극을 메웁니다. 단순한 SQL 생성을 넘어, 비즈니스 컨텍스트(Semantic Layer)를 이해하고 답변 전 데이터 품질(Quality Check)을 스스로 검증합니다.
 
 ---
 
-## Why quada?
+## ✨ Key Features
 
-Most data tools make you choose between **speed** and **trust**.
-
-You can get a fast answer from a chatbot that hallucinates SQL — or you can wait for a data analyst who understands your business context and checks the data before answering.
-
-quada is built on the belief that both are possible at the same time.
-
-The root problem is that business knowledge lives in people's heads, not in the database. Words like "churned customer" or "active revenue" mean something specific to your team, but that meaning is never captured anywhere queryable. When a non-technical user asks a question, the system has no way to know what they actually mean — so it guesses, and guesses wrong.
-
-quada solves this with a **semantic layer**: a small set of YAML files where you define your entities, metrics, and business terms once. From that point, every natural language query is resolved against real definitions, not LLM intuition.
-
-And before answering, quada always checks the data itself. If the underlying table is stale, has unexpected NULLs, or violates a range constraint, you'll know before you trust the result.
+* **Semantic Layer:** YAML로 비즈니스 용어(예: "이탈 고객")를 정의하여 LLM의 추측이 아닌 실제 정의를 바탕으로 쿼리합니다.
+* **Quality-First:** 답변 전 데이터의 신선도(Freshness), NULL 비율, 값 범위를 자동 체크합니다.
+* **Human-in-the-loop:** 모호한 질문이나 품질 이슈 발견 시 독단적으로 판단하지 않고 사용자에게 질문합니다.
+* **Multi-model Routing:** 작업별로 최적의 LLM(Claude, GPT 등)을 다르게 배치하여 비용과 성능을 최적화합니다.
+* **CLI-Native:** 터미널에서 즉시 실행하며, ASCII 차트로 시각화 결과를 제공합니다.
 
 ---
 
-## How It Works
+## 🛠 How It Works
 
-When you ask a question, quada runs it through a multi-agent pipeline:
+quada는 **Multi-agent Pipeline**을 통해 동작하며, 각 단계는 독립적으로 자기 수정을 수행합니다.
 
-```
-"Show me revenue from churned customers"
-         ↓
-[semantic_query]  Resolves "churned customer" from glossary, generates SQL
-         ↓
-[quality]         Checks freshness, null ratios, and value ranges on target tables
-         ↓
-[execute]         Runs the SQL (read-only)
-         ↓
-[interpret]       Summarizes results in natural language + renders a chart
-```
-
-If anything is uncertain — a missing term, a quality warning, an ambiguous query — the pipeline pauses and asks you directly. No silent failures.
-
-Each step is an independent agent running its own LLM + tool-call loop (ReAct), so it can retry, self-correct, and call multiple tools before moving on.
+1.  **Semantic Query:** 비즈니스 용어집에서 정의를 찾아 SQL 생성.
+2.  **Quality Check:** 타겟 테이블의 데이터 품질 검증 (결함 발견 시 경고).
+3.  **Execute:** SQL 실행 (Read-only 보장).
+4.  **Interpret:** 결과를 자연어로 요약하고 차트 렌더링.
 
 ---
 
-## Key Features
-
-**Semantic layer as first-class citizen**
-Define your entities, metrics, and business terms in YAML. quada resolves all queries against these definitions, not raw table names.
-
-**Quality-first**
-Before answering, quada validates the data: freshness, null ratios, value ranges, uniqueness, and custom SQL rules. Quality warnings are surfaced to you, not hidden.
-
-**Human-in-the-loop**
-If a term is missing or data quality is concerning, the pipeline pauses and prompts you — then resumes from where it stopped.
-
-**Multi-model LLM routing**
-Assign different LLM providers and models to different agents. Use a fast, cheap model for quality checks and a powerful model for interpretation.
-
-**Read-only by design**
-quada never writes to your database. All SQL execution is read-only.
-
-**CLI-native**
-Runs entirely in the terminal. Charts are rendered inline with ASCII.
-
----
-
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
-# Install
+# 1. 설치 및 프로젝트 초기화
 uv sync
-
-# Initialize a project
 uv run quada init --path ./my-project
 
-# Build the metadata index
+# 2. 메타데이터 인덱스 빌드
 uv run quada index --path ./my-project
 
-# Ask a question
+# 3. 자연어로 질문하기
 export ANTHROPIC_API_KEY=sk-ant-...
-uv run quada ask "Show me revenue from churned customers" --path ./my-project
+uv run quada ask "지난달 이탈 고객의 매출을 보여줘" --path ./my-project
 ```
 
 ---
 
-## CLI Reference
+## ⚙️ Configuration (`quada.yaml`)
+
+각 에이전트별로 모델을 자유롭게 할당할 수 있습니다.
+
+```yaml
+llm:
+  orchestrator: { provider: anthropic, model: claude-3-5-sonnet }
+  agents:
+    semantic_query: { provider: anthropic, model: claude-3-haiku } # 빠르고 저렴하게
+    quality: { provider: openai, model: gpt-4o-mini }             # 효율적인 검증
+    interpret: { provider: anthropic, model: claude-3-5-sonnet }  # 정교한 요약
+```
+
+---
+
+## ✅ Quality Rules
+
+`quality/rules.yaml`에 데이터 신뢰 규격 정의 시, 쿼리 전 자동으로 검사합니다.
+
+| 유형 | 설명 | 주요 파라미터 |
+| :--- | :--- | :--- |
+| `freshness` | 데이터 최신성 확인 | `column`, `threshold` (예: "24 hours") |
+| `null_ratio` | NULL 허용 범위 체크 | `column`, `threshold` (0.0~1.0) |
+| `value_range` | 수치 데이터 범위 검증 | `column`, `min`, `max` |
+| `unique` | 중복 데이터 존재 여부 | `column` |
+| `custom_sql` | 사용자 정의 SQL 검증 | `query`, `threshold` |
+
+---
+
+## 💻 CLI Reference
 
 | Command | Description |
-|---------|-------------|
-| `quada init` | Scaffold a new quada project with a `quada.yaml` template |
-| `quada validate` | Validate `quada.yaml` and the semantic layer definitions |
-| `quada index` | Build the metadata index from the semantic layer |
-| `quada check` | Run all quality rules and report results |
-| `quada ask "<question>"` | Query data in natural language |
-| `quada config` | Print the resolved configuration |
-| `quada --version` | Print the version |
-
-All commands accept `--path` to specify the project directory (defaults to current directory).
-
-```bash
-uv run quada ask "Total revenue this month" --path ./my-project
-uv run quada check --path ./my-project
-uv run quada config --path ./my-project
-```
+| :--- | :--- |
+| `quada init` | 새 프로젝트 템플릿 생성 |
+| `quada index` | 시맨틱 레이어 기반 메타데이터 인덱싱 |
+| `quada check` | 모든 품질 규칙(Quality Rules) 실행 및 보고 |
+| `quada ask "<q>"` | 자연어 기반 데이터 질의 |
+| `quada validate` | 설정 파일 및 시맨틱 정의 유효성 검사 |
 
 ---
 
-## Configuration
+## 🏗 Architecture
 
-`quada init` generates a `quada.yaml` in your project directory. Configure your database connection, LLM providers, and semantic layer paths here.
+**LangGraph** 기반의 상태 머신 구조로 설계되어 유연한 워크플로우를 제공합니다.
 
-Environment variables are supported via `${VAR_NAME}` syntax.
-
-```yaml
-database:
-  type: postgresql       # postgresql or sqlite
-  host: localhost
-  port: 5432
-  name: mydb
-  user: ${DB_USER}
-  password: ${DB_PASSWORD}
-
-llm:
-  orchestrator:
-    provider: anthropic
-    model: claude-opus-4-6
-  agents:
-    semantic_query:
-      provider: anthropic
-      model: claude-haiku-4-5-20251001
-    quality:
-      provider: openai
-      model: gpt-4o-mini
-    interpret:
-      provider: anthropic
-      model: claude-sonnet-4-6
-```
-
-Different agents can use different models. Tune for cost, latency, or capability per step.
+* **Framework:** LangGraph, LiteLLM, SQLAlchemy, Pydantic
+* **Interface:** Typer (CLI), Rich (Display), Plotext (Charts)
 
 ---
 
-## Semantic Layer
+## 📖 Tutorial
 
-The semantic layer is a set of YAML files that encode your business knowledge. quada reads these at index time and uses them to resolve every natural language query.
+SQLite 기반 샘플 프로젝트(고객 10명, 주문 25건)로 전체 기능을 체험할 수 있습니다.
 
-```
-my-project/
-  models/      entity definitions (tables, columns, relationships)
-  metrics/     computed metrics (e.g. revenue, churn rate)
-  glossary/    business term definitions (e.g. "churned customer")
-  quality/     data quality rules
-```
-
-Before querying, build the index:
-
-```bash
-uv run quada index --path ./my-project
-```
-
-This generates `.quada/metadata_index.json` — a lightweight summary the LLM uses to decide which definitions to fetch in full. This keeps token usage low even with large semantic layers.
-
-See `tests/fixtures/` or `tutorial/` for examples.
-
----
-
-## Quality Rules
-
-Define quality rules in `quality/rules.yaml`. Rules on the same table are batched into a single SQL query for efficiency.
-
-| Type | Description | Key Parameters |
-|------|-------------|----------------|
-| `freshness` | Data has been updated recently | `column`, `threshold` (e.g. `"24 hours"`) |
-| `null_ratio` | NULL rate in a column is within bounds | `column`, `threshold` (0.0–1.0) |
-| `value_range` | Numeric column values are within range | `column`, `min`, `max` |
-| `unique` | No duplicate values in a column | `column` |
-| `custom_sql` | Arbitrary SQL returns a `violations` count | `query`, `threshold` |
-
-Results are reported as **pass** or **warn**. If warnings are present, `quada ask` will prompt you before proceeding.
-
-```yaml
-- name: orders_freshness
-  type: freshness
-  table: orders
-  column: updated_at
-  threshold: "24 hours"
-
-- name: orders_status_not_null
-  type: null_ratio
-  table: orders
-  column: status
-  threshold: 0.05
-
-- name: orders_amount_range
-  type: value_range
-  table: orders
-  column: amount
-  min: 0
-  max: 1000000
-
-- name: customers_email_unique
-  type: unique
-  table: customers
-  column: email
-
-- name: no_future_orders
-  type: custom_sql
-  table: orders
-  query: >
-    SELECT COUNT(*) as violations
-    FROM orders
-    WHERE order_date > DATE('now')
-  threshold: 0
-```
-
----
-
-## Architecture
-
-quada is built on [LangGraph](https://github.com/langchain-ai/langgraph). The pipeline is a `StateGraph` with conditional routing based on each node's output.
-
-```
-CLI
- ↓
-StateGraph (stop_reason-based conditional routing)
- ├─ semantic_query_node  — resolves terms, fetches definitions, generates SQL
- ├─ quality_node         — validates data quality for target tables
- ├─ execute_node         — executes SQL (read-only)
- ├─ interpret_node       — summarizes results, renders charts
- └─ escalate_node        — interrupt() for human-in-the-loop input
-```
-
-```
-src/quada/
-  core/       QuadaState, StateGraph orchestrator
-  agents/     base agent (tool call loop), semantic_query, quality, interpret
-  nodes/      graph node functions
-  tools/      tool definitions (semantic, quality, interpret)
-  semantic/   YAML models, loader, MetadataIndex builder
-  db/         connector, read-only executor
-  llm/        LiteLLM client, system prompts
-  quality/    rule engine (batches rules into SQL)
-  cli/        Typer app, Rich display
-  viz/        Plotext chart rendering
-```
-
-**Stack:** LangGraph · LiteLLM · SQLAlchemy · Pydantic · Typer · Rich
-
----
-
-## Tutorial
-
-The `tutorial/` directory contains a SQLite-based sample project with 10 customers and 25 orders.
-
-### 1. Setup
-
-```bash
-uv sync
-uv run python tutorial/setup_db.py
-```
-
-### 2. Validate
-
-```bash
-uv run quada validate --path tutorial/
-```
-
-```
-✓ quada.yaml is valid
-  Entities: 2, Metrics: 1, Glossary terms: 3, Quality rules: 3
-✓ Semantic layer is valid
-```
-
-### 3. Build index
-
-```bash
-uv run quada index --path tutorial/
-```
-
-```
-✓ metadata_index.json saved to tutorial/.quada
-  Entities: 2, Metrics: 1, Glossary: 3
-```
-
-### 4. Run quality checks
-
-```bash
-uv run quada check --path tutorial/
-```
-
-```
-  PASS orders_freshness: Data is fresh
-  WARN orders_status_not_null: status null ratio 8.0% exceeds threshold 5.0%
-  PASS orders_amount_range: amount values within range
-
-Overall: WARN
-```
-
-### 5. Ask questions
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-
-uv run quada ask "Show me revenue from churned customers" --path tutorial/
-uv run quada ask "Number of new customers" --path tutorial/
-uv run quada ask "Total revenue this month" --path tutorial/
-```
-
-### Sample Data
-
-| Table | Rows | Notes |
-|-------|------|-------|
-| customers | 10 | 2 churned, 4 new, 4 active |
-| orders | 25 | 20 completed, 1 cancelled, 1 pending, 1 refunded, 2 NULL status |
-
-### Semantic Layer
-
-- **models/**: `customers`, `orders` entity definitions
-- **metrics/**: `revenue` (sum of completed order amounts)
-- **glossary/**: `churned customer`, `new customer`, `active customer`
-- **quality/**: freshness, null ratio, value range, unique, custom SQL rules
+→ **[튜토리얼 바로가기](tutorial/TUTORIAL.md)**
