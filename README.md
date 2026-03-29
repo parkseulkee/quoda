@@ -17,25 +17,25 @@ uv run pytest tests/ -v
 ## CLI
 
 ```bash
-# 버전 확인
+# Check version
 uv run quada --version
 
-# 프로젝트 초기화
+# Initialize project
 uv run quada init --path ./my-project
 
-# 설정 검증
+# Validate configuration
 uv run quada validate --path ./my-project
 
-# 메타데이터 인덱스 빌드 (ask 실행 전 필수)
-uv run quada index build --path ./my-project
+# Build metadata index (required before running ask)
+uv run quada index --path ./my-project
 
-# 데이터 질의 (DB 연결 + LLM API 키 필요)
-uv run quada ask "이탈 고객의 매출 보여줘" --path ./my-project
+# Query data in natural language (requires DB connection + LLM API key)
+uv run quada ask "Show me revenue from churned customers" --path ./my-project
 
-# 품질 검사 (DB 연결 필요)
+# Run quality checks (requires DB connection)
 uv run quada check --path ./my-project
 
-# 설정 확인
+# Show configuration
 uv run quada config --path ./my-project
 ```
 
@@ -57,29 +57,29 @@ src/quada/
 
 ## Architecture
 
-quada는 LangGraph 기반 agentic pipeline으로 동작합니다.
+quada runs as a LangGraph-based agentic pipeline.
 
 ```
 CLI
  ↓
-StateGraph (stop_reason 기반 conditional routing)
- ├─ semantic_query_node  — MetadataIndex를 보고 필요한 정의만 조회 후 SQL 생성
- ├─ quality_node         — 대상 테이블 품질 검증 + 영향도 분석
- ├─ execute_node         — SQL 실행 (read-only)
- ├─ interpret_node       — 결과 자연어 해석 + 시각화
- └─ escalate_node        — interrupt()로 사용자 입력 대기 (human-in-the-loop)
+StateGraph (conditional routing based on stop_reason)
+ ├─ semantic_query_node  — looks up MetadataIndex, fetches only needed definitions, generates SQL
+ ├─ quality_node         — validates data quality + impact analysis for target tables
+ ├─ execute_node         — executes SQL (read-only)
+ ├─ interpret_node       — interprets results in natural language + visualization
+ └─ escalate_node        — waits for user input via interrupt() (human-in-the-loop)
 ```
 
-각 노드는 LLM + tool call loop(ReAct)로 동작하며, 실패 시 escalate_node를 통해 사용자에게 에스컬레이션합니다.
+Each node operates as an LLM + tool call loop (ReAct). On failure, it escalates to the user via `escalate_node`.
 
 ### MetadataIndex
 
-`quada index build`로 생성되는 `.quada/metadata_index.json`에 semantic layer의 경량 요약을 저장합니다. `quada ask` 실행 시 LLM이 이 인덱스를 보고 어떤 entity/metric/glossary 정의를 상세 조회할지 결정합니다.
+`quada index` generates `.quada/metadata_index.json`, which stores a lightweight summary of the semantic layer. When `quada ask` runs, the LLM reads this index to decide which entity/metric/glossary definitions to fetch in detail.
 
 ## Configuration
 
-`quada init`으로 생성되는 `quada.yaml`에서 DB, LLM, semantic layer를 설정합니다.
-환경변수는 `${VAR_NAME}` 형식으로 사용 가능합니다.
+`quada init` generates `quada.yaml` where you configure the DB, LLM, and semantic layer.
+Environment variables can be referenced using `${VAR_NAME}` syntax.
 
 ```yaml
 database:
@@ -108,28 +108,28 @@ llm:
 
 ## Semantic Layer
 
-`models/`, `metrics/`, `glossary/`, `quality/` 디렉토리에 YAML 파일로 정의합니다.
-예시는 `tests/fixtures/` 또는 `tutorial/` 참고.
+Define your semantic layer as YAML files in `models/`, `metrics/`, `glossary/`, and `quality/` directories.
+See `tests/fixtures/` or `tutorial/` for examples.
 
 ## Tutorial
 
-`tutorial/` 디렉토리에 SQLite 기반 샘플 프로젝트가 포함되어 있습니다.
-고객 10명, 주문 25건의 소규모 데이터셋으로 전체 기능을 체험할 수 있습니다.
+The `tutorial/` directory contains a SQLite-based sample project.
+A small dataset with 10 customers and 25 orders lets you try out all features end-to-end.
 
-### 1. 셋업
+### 1. Setup
 
 ```bash
 uv sync
 uv run python tutorial/setup_db.py
 ```
 
-### 2. 설정 검증
+### 2. Validate configuration
 
 ```bash
 uv run quada validate --path tutorial/
 ```
 
-예상 출력:
+Expected output:
 ```
 ✓ quada.yaml is valid
   Entities: 2
@@ -139,13 +139,13 @@ uv run quada validate --path tutorial/
 ✓ Semantic layer is valid
 ```
 
-### 3. 메타데이터 인덱스 빌드
+### 3. Build metadata index
 
 ```bash
-uv run quada index build --path tutorial/
+uv run quada index --path tutorial/
 ```
 
-예상 출력:
+Expected output:
 ```
 ✓ metadata_index.json saved to tutorial/.quada
   Entities: 2
@@ -153,13 +153,13 @@ uv run quada index build --path tutorial/
   Glossary: 3
 ```
 
-### 4. 품질 검사
+### 4. Run quality checks
 
 ```bash
 uv run quada check --path tutorial/
 ```
 
-예상 출력:
+Expected output:
 ```
   PASS orders_freshness: Data is fresh
   WARN orders_status_not_null: status null ratio 8.0% exceeds threshold 5.0%
@@ -168,31 +168,87 @@ uv run quada check --path tutorial/
 Overall: WARN
 ```
 
-orders 테이블에 status가 NULL인 행이 2건 있어 경고가 발생합니다.
+The `orders` table has 2 rows with a NULL `status`, triggering a warning.
 
-### 5. 자연어 질의 (LLM API 키 필요)
+### 5. Natural language queries (requires LLM API key)
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 
-uv run quada ask "이탈 고객의 매출 보여줘" --path tutorial/
-uv run quada ask "신규 고객 수" --path tutorial/
-uv run quada ask "이번달 총 매출" --path tutorial/
+uv run quada ask "Show me revenue from churned customers" --path tutorial/
+uv run quada ask "Number of new customers" --path tutorial/
+uv run quada ask "Total revenue this month" --path tutorial/
 ```
 
-품질 경고가 있으면 계속 진행할지 사용자에게 확인합니다.
-용어를 찾지 못하면 정의를 직접 입력할 수 있습니다.
+If there are quality warnings, quada will ask whether to proceed.
+If a term is not found, you can enter its definition interactively.
 
-### 샘플 데이터 요약
+### Sample Data
 
-| 테이블 | 건수 | 비고 |
-|--------|------|------|
-| customers | 10 | 이탈 2명, 신규 4명, 활성 4명 |
-| orders | 25 | completed 20, cancelled 1, pending 1, refunded 1, NULL status 2 |
+| Table | Rows | Notes |
+|-------|------|-------|
+| customers | 10 | 2 churned, 4 new, 4 active |
+| orders | 25 | 20 completed, 1 cancelled, 1 pending, 1 refunded, 2 NULL status |
 
-### Semantic Layer 구성
+### Semantic Layer Structure
 
-- **models/**: `customers`, `orders` 엔티티 정의
-- **metrics/**: `revenue` (완료 주문 매출 합계)
-- **glossary/**: `이탈 고객`, `신규 고객`, `활성 고객` 비즈니스 용어
-- **quality/**: freshness, null ratio, value range 규칙
+- **models/**: `customers` and `orders` entity definitions
+- **metrics/**: `revenue` (sum of completed order amounts)
+- **glossary/**: `churned customer`, `new customer`, `active customer` business terms
+- **quality/**: freshness, null ratio, value range, unique, and custom SQL rules
+
+## Quality Check Rules
+
+Defined in `quality/rules.yaml`. Rules targeting the same table are batched into a single SQL query.
+
+| Type | Description | Key Parameters |
+|------|-------------|----------------|
+| `freshness` | Checks whether data has been updated recently | `column`, `threshold` (e.g. `"24 hours"`) |
+| `null_ratio` | Checks whether the NULL ratio in a column is within bounds | `column`, `threshold` (0.0–1.0, e.g. `0.05` = 5%) |
+| `value_range` | Checks whether numeric column values are within a specified range | `column`, `min`, `max` |
+| `unique` | Checks for duplicate values in a column | `column` |
+| `custom_sql` | Checks violation count via an arbitrary SQL query | `query` (must return a `violations` column), `threshold` |
+
+### Rule Definition Examples
+
+```yaml
+# freshness — check recency
+- name: orders_freshness
+  type: freshness
+  table: orders
+  column: updated_at
+  threshold: "24 hours"
+
+# null_ratio — check NULL rate
+- name: orders_status_not_null
+  type: null_ratio
+  table: orders
+  column: status
+  threshold: 0.05
+
+# value_range — check numeric bounds
+- name: orders_amount_range
+  type: value_range
+  table: orders
+  column: amount
+  min: 0
+  max: 1000000
+
+# unique — check for duplicates
+- name: customers_email_unique
+  type: unique
+  table: customers
+  column: email
+
+# custom_sql — custom query
+- name: no_future_orders
+  type: custom_sql
+  table: orders
+  query: >
+    SELECT COUNT(*) as violations
+    FROM orders
+    WHERE order_date > DATE('now')
+  threshold: 0
+```
+
+Results are reported as **pass** or **warn**.
