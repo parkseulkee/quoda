@@ -10,9 +10,8 @@ from rich.console import Console
 
 import quada
 from quada.cli.display import (
-    print_sql,
     print_error,
-    print_query_results,
+    print_final_output,
 )
 from quada.core.config import load_config
 from quada.db.connector import create_engine_from_config
@@ -169,7 +168,7 @@ def ask(
 
     index_path = project_dir / ".quada" / "metadata_index.json"
     if not index_path.exists():
-        print_error("metadata_index.json not found. Run 'quada index build' first.")
+        print_error("metadata_index.json not found. Run 'quada index' first.")
         raise typer.Exit(1)
 
     engine = create_engine_from_config(config.database)
@@ -204,6 +203,7 @@ def ask(
         "error": None,
         "escalation_question": None,
         "user_clarification": None,
+        "interpretation": None,
         "stop_reason": None,
     }
 
@@ -224,10 +224,7 @@ def ask(
 
     # Get final state and display results
     final_state = graph.get_state(thread_config).values
-    if final_state.get("sql"):
-        print_sql(final_state["sql"])
-    if final_state.get("query_results"):
-        print_query_results(final_state["query_results"])
+    print_final_output(final_state)
 
 
 @app.command()

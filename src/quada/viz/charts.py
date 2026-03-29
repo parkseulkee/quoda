@@ -6,6 +6,7 @@ import plotext as plt
 def render_bar_chart(data: dict[str, float], title: str = "") -> str:
     """Render a bar chart in the terminal and return the string output."""
     plt.clear_figure()
+    plt.plotsize(60, 15)
     plt.bar(list(data.keys()), list(data.values()))
     if title:
         plt.title(title)
@@ -16,6 +17,7 @@ def render_bar_chart(data: dict[str, float], title: str = "") -> str:
 def render_line_chart(x: list, y: list, title: str = "") -> str:
     """Render a line chart in the terminal and return the string output."""
     plt.clear_figure()
+    plt.plotsize(60, 15)
     plt.plot(x, y)
     if title:
         plt.title(title)

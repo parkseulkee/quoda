@@ -13,4 +13,5 @@ class QuadaState(TypedDict):
     error: str | None
     escalation_question: str | None
     user_clarification: str | None
+    interpretation: dict | None
     stop_reason: str | None

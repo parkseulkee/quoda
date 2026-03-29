@@ -8,6 +8,13 @@ from langgraph.graph import END, StateGraph
 from quada.agents.interpret import InterpretAgent
 from quada.agents.quality import QualityAgent
 from quada.agents.semantic_query import SemanticQueryAgent
+from quada.cli.display import (
+    print_agent_escalate,
+    print_agent_execute,
+    print_agent_interpret,
+    print_agent_quality,
+    print_agent_semantic,
+)
 from quada.core.state import QuadaState
 from quada.db.executor import SQLExecutor
 from quada.llm.client import LLMClient
@@ -24,6 +31,7 @@ def build_graph(
     semantic_context: SemanticContext,
     executor: SQLExecutor,
     project_dir: Path,
+    verbose: bool = True,
 ):
     """Build and compile the LangGraph StateGraph.
 
@@ -39,19 +47,34 @@ def build_graph(
     interpret_agent = InterpretAgent(llm_client=llm_client)
 
     def semantic_query_node(state: QuadaState) -> dict:
-        return run_semantic_query_node(state, semantic_agent, project_dir)
+        result = run_semantic_query_node(state, semantic_agent, project_dir)
+        if verbose:
+            print_agent_semantic({**state, **result})
+        return result
 
     def quality_node(state: QuadaState) -> dict:
-        return run_quality_node(state, quality_agent)
+        result = run_quality_node(state, quality_agent)
+        if verbose:
+            print_agent_quality({**state, **result})
+        return result
 
     def execute_node(state: QuadaState) -> dict:
-        return run_execute_node(state, executor)
+        result = run_execute_node(state, executor)
+        if verbose:
+            print_agent_execute({**state, **result})
+        return result
 
     def interpret_node(state: QuadaState) -> dict:
-        return run_interpret_node(state, interpret_agent)
+        result = run_interpret_node(state, interpret_agent)
+        if verbose:
+            print_agent_interpret({**state, **result})
+        return result
 
     def escalate_node(state: QuadaState) -> dict:
-        return run_escalate_node(state)
+        result = run_escalate_node(state)
+        if verbose:
+            print_agent_escalate({**state, **result})
+        return result
 
     def route(state: QuadaState) -> str:
         return state["stop_reason"]

@@ -4,6 +4,7 @@ from quada.agents.base import BaseAgent
 from quada.core.state import QuadaState
 from quada.llm.client import LLMClient
 from quada.llm.prompts import INTERPRET_AGENT_SYSTEM_PROMPT
+from quada.tools.base import TerminalResult
 from quada.tools.interpret_tools import finalize_interpretation, render_chart
 
 _TOOL_DEFINITIONS = [
@@ -82,15 +83,33 @@ class InterpretAgent(BaseAgent):
             },
         ]
 
+        # Capture chart output from render_chart calls
+        last_chart: list[str | None] = [None]
+
+        def render_chart_with_capture(**kwargs) -> str:
+            result = render_chart(**kwargs)
+            last_chart[0] = result
+            return result
+
+        def finalize_with_chart(**kwargs) -> TerminalResult:
+            terminal = finalize_interpretation(**kwargs)
+            # Inject captured chart into interpretation state
+            if last_chart[0] and terminal.state_updates.get("interpretation"):
+                terminal.state_updates["interpretation"]["chart"] = last_chart[0]
+            return terminal
+
         tool_executors = {
-            "render_chart": render_chart,
-            "finalize_interpretation": finalize_interpretation,
+            "render_chart": render_chart_with_capture,
+            "finalize_interpretation": finalize_with_chart,
         }
 
-        stop_reason, _ = self.run_tool_loop(
+        stop_reason, state_updates = self.run_tool_loop(
             messages=messages,
             tool_definitions=_TOOL_DEFINITIONS,
             tool_executors=tool_executors,
         )
 
-        return {"stop_reason": stop_reason or "done"}
+        result = {"stop_reason": stop_reason or "done"}
+        if state_updates:
+            result.update(state_updates)
+        return result
