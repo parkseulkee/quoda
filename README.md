@@ -3,7 +3,6 @@
 
 quada는 "빠른 답변"과 "데이터 신뢰" 사이의 간극을 메웁니다. 단순한 SQL 생성을 넘어, 비즈니스 컨텍스트(Semantic Layer)를 이해하고 답변 전 데이터 품질(Quality Check)을 스스로 검증합니다.
 
----
 
 ## ✨ Key Features
 
@@ -13,7 +12,6 @@ quada는 "빠른 답변"과 "데이터 신뢰" 사이의 간극을 메웁니다.
 * **Multi-model Routing:** 작업별로 최적의 LLM(Claude, GPT 등)을 다르게 배치하여 비용과 성능을 최적화합니다.
 * **CLI-Native:** 터미널에서 즉시 실행하며, ASCII 차트로 시각화 결과를 제공합니다.
 
----
 
 ## 🛠 How It Works
 
@@ -24,7 +22,6 @@ quada는 **Multi-agent Pipeline**을 통해 동작하며, 각 단계는 독립�
 3.  **Execute:** SQL 실행 (Read-only 보장).
 4.  **Interpret:** 결과를 자연어로 요약하고 차트 렌더링.
 
----
 
 ## 🚀 Quick Start
 
@@ -41,7 +38,6 @@ export ANTHROPIC_API_KEY=sk-ant-...
 uv run quada ask "지난달 이탈 고객의 매출을 보여줘" --path ./my-project
 ```
 
----
 
 ## ⚙️ Configuration (`quada.yaml`)
 
@@ -56,8 +52,6 @@ llm:
     interpret: { provider: anthropic, model: claude-3-5-sonnet }  # 정교한 요약
 ```
 
----
-
 ## ✅ Quality Rules
 
 `quality/rules.yaml`에 데이터 신뢰 규격 정의 시, 쿼리 전 자동으로 검사합니다.
@@ -70,7 +64,6 @@ llm:
 | `unique` | 중복 데이터 존재 여부 | `column` |
 | `custom_sql` | 사용자 정의 SQL 검증 | `query`, `threshold` |
 
----
 
 ## 💻 CLI Reference
 
@@ -82,7 +75,6 @@ llm:
 | `quada ask "<q>"` | 자연어 기반 데이터 질의 |
 | `quada validate` | 설정 파일 및 시맨틱 정의 유효성 검사 |
 
----
 
 ## 🏗 Architecture
 
@@ -91,7 +83,6 @@ llm:
 * **Framework:** LangGraph, LiteLLM, SQLAlchemy, Pydantic
 * **Interface:** Typer (CLI), Rich (Display), Plotext (Charts)
 
----
 
 ## 📖 Tutorial
 
